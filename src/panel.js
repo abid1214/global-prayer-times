@@ -255,8 +255,9 @@ function render(lat, lon, date, tz) {
 
   let dateLine = `${fmtDateLabel(date, tz)} · ${tzLabel(tz, date)}`;
   if (times.aqrab) {
-    const hemi = times.aqrab.projectedFromLat >= 0 ? "N" : "S";
-    dateLine += ` · projected from ${Math.abs(times.aqrab.projectedFromLat)}°${hemi} (Aqrab al-Bilād)`;
+    const lat = times.aqrab.projectedFromLat;
+    const hemi = lat >= 0 ? "N" : "S";
+    dateLine += ` · projected from ${Math.abs(lat).toFixed(1)}°${hemi} (Aqrab al-Bilād)`;
   }
   panelDate.textContent = dateLine;
 
