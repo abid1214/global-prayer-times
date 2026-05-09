@@ -2,7 +2,7 @@
 
 A real-time, interactive 3D globe showing the five Shia (Ja'fari) prayer windows around the world. Drop a finger anywhere on Earth to see today's prayer schedule, a great-circle qibla line to Mecca, and which prayer is currently in effect.
 
-Live: <https://abid1214.github.io/global-prayer-times/> *(once GitHub Pages is enabled on `master`)*
+Live: <https://abid1214.github.io/global-prayer-times/> *(once GitHub Pages is enabled in repo settings)*
 
 ## What it does
 
