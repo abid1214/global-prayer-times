@@ -462,8 +462,9 @@ html, body {
     padding-top: calc(10px + env(safe-area-inset-top, 0px));
     padding-left: calc(14px + env(safe-area-inset-left, 0px));
     padding-right: calc(14px + env(safe-area-inset-right, 0px));
+    justify-content: flex-end;
   }
-  #topbar .title { font-size: 13px; }
+  #topbar .title { display: none; }
 
   #hud {
     width: calc(100vw - 32px);
@@ -493,16 +494,16 @@ html, body {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--muted);
-    font-size: 14px;
+    font-size: 18px;
     line-height: 1;
     padding: 0;
     cursor: pointer;
-    transition: transform 0.15s;
+    transition: color 0.15s, border-color 0.15s;
   }
   #legend:not(.expanded) > ul,
   #legend:not(.expanded) > .toggles,
   #legend:not(.expanded) > .hint { display: none; }
-  #legend.expanded #legendToggle { transform: rotate(180deg); }
+  #legend.expanded #legendToggle { color: var(--accent); border-color: var(--accent); }
 
   #scrubber {
     left: calc(12px + env(safe-area-inset-left, 0px));
@@ -543,7 +544,6 @@ html, body {
 }
 
 @media (max-width: 480px) {
-  #topbar .title .muted { display: none; }
   #legend { padding: 10px 12px; }
   #panel h2 { font-size: 15px; }
 }

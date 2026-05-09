@@ -39,6 +39,7 @@ controls.enablePan = false;
 controls.minDistance = 1.25;
 controls.maxDistance = 8;
 controls.zoomSpeed = 0.6;
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE };
 
 // Starfield
 {
