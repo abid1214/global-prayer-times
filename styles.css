@@ -593,8 +593,10 @@ html, body {
     font-size: 12px;
     flex-shrink: 0;
   }
-  body:has(#panel:not([hidden])) #scrubber,
-  body:has(#panelPeek:not([hidden])) #scrubber { display: none; }
+  body:has(#panel:not([hidden])) #scrubber { display: none; }
+  body:has(#panelPeek:not([hidden])) #scrubber {
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+  }
 
   #panelClose {
     width: 36px;
