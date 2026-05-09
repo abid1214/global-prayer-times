@@ -455,6 +455,8 @@ html, body {
 /* ---------- Mobile / responsive ---------- */
 
 #legendToggle { display: none; }
+#panelHandle { display: none; }
+#panelPeek { display: none; }
 
 @media (max-width: 768px) {
   #topbar {
@@ -525,8 +527,74 @@ html, body {
     border-radius: 14px 14px 0 0;
     padding: 14px 18px calc(18px + env(safe-area-inset-bottom, 0px));
     border-bottom: 0;
+    transition: transform 0.25s ease;
+    will-change: transform;
   }
-  body:has(#panel:not([hidden])) #scrubber { display: none; }
+  #panel.dragging { transition: none; }
+  #panelHandle {
+    display: block;
+    position: sticky;
+    top: 0;
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--muted);
+    opacity: 0.45;
+    margin: -4px auto 8px;
+    touch-action: none;
+    cursor: grab;
+  }
+  #panelHandle:active { cursor: grabbing; }
+
+  #panelPeek {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--panel);
+    backdrop-filter: blur(10px);
+    border: 0;
+    border-top: 1px solid var(--border);
+    color: var(--fg);
+    padding: 14px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    z-index: 5;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    touch-action: none;
+    transition: transform 0.25s ease;
+    will-change: transform;
+  }
+  #panelPeek[hidden] { display: none; }
+  #panelPeek.dragging { transition: none; }
+  #panelPeek .peekHandle {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--muted);
+    opacity: 0.45;
+  }
+  #panelPeek .peekName {
+    flex: 1;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #panelPeek .peekCur {
+    color: var(--muted);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  body:has(#panel:not([hidden])) #scrubber,
+  body:has(#panelPeek:not([hidden])) #scrubber { display: none; }
 
   #panelClose {
     width: 36px;

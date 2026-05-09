@@ -9,8 +9,107 @@ const panelCurrent = document.getElementById("panelCurrent");
 const panelTimesBody = document.querySelector("#panelTimes tbody");
 const panelQibla = document.getElementById("panelQibla");
 const panelClose = document.getElementById("panelClose");
+const panelHandle = document.getElementById("panelHandle");
+const panelPeek = document.getElementById("panelPeek");
+const peekName = panelPeek.querySelector(".peekName");
+const peekCur = panelPeek.querySelector(".peekCur");
 
-panelClose.addEventListener("click", () => { panel.hidden = true; });
+let dismissed = false;
+let lastLocation = null;
+
+const isMobile = () => window.matchMedia("(max-width: 768px)").matches;
+
+panelClose.addEventListener("click", () => dismissPanel());
+
+function dismissPanel() {
+  if (panel.hidden) return;
+  if (!isMobile()) {
+    panel.hidden = true;
+    return;
+  }
+  panel.classList.remove("dragging");
+  panel.style.transform = "translateY(100%)";
+  const onEnd = (e) => {
+    if (e.propertyName !== "transform") return;
+    panel.removeEventListener("transitionend", onEnd);
+    panel.hidden = true;
+    panel.style.transform = "";
+  };
+  panel.addEventListener("transitionend", onEnd);
+  if (lastLocation) {
+    dismissed = true;
+    showPeek(lastLocation);
+  }
+}
+
+function restorePanel() {
+  dismissed = false;
+  panelPeek.style.transform = "";
+  panelPeek.classList.remove("dragging");
+  panelPeek.hidden = true;
+  if (lastLocation) showPanelForLocation(lastLocation, lastLocation.date);
+}
+
+function showPeek(loc) {
+  peekName.textContent = loc.name || "Selected location";
+  const meta = loc.currentPrayer && PRAYER_META.find((p) => p.key === loc.currentPrayer);
+  peekCur.textContent = meta ? `Now: ${meta.label}` : "";
+  panelPeek.hidden = false;
+}
+
+// ---- drag the handle to dismiss ----
+let panelDrag = null;
+panelHandle.addEventListener("pointerdown", (e) => {
+  panelDrag = { startY: e.clientY, dy: 0 };
+  panel.classList.add("dragging");
+  panelHandle.setPointerCapture(e.pointerId);
+});
+panelHandle.addEventListener("pointermove", (e) => {
+  if (!panelDrag) return;
+  panelDrag.dy = Math.max(0, e.clientY - panelDrag.startY);
+  panel.style.transform = `translateY(${panelDrag.dy}px)`;
+});
+function endPanelDrag(commit) {
+  if (!panelDrag) return;
+  panel.classList.remove("dragging");
+  if (commit && panelDrag.dy > 80) {
+    dismissPanel();
+  } else {
+    panel.style.transform = "";
+  }
+  panelDrag = null;
+}
+panelHandle.addEventListener("pointerup", () => endPanelDrag(true));
+panelHandle.addEventListener("pointercancel", () => endPanelDrag(false));
+
+// ---- tap or drag-up on the peek to restore ----
+let peekDrag = null;
+panelPeek.addEventListener("pointerdown", (e) => {
+  peekDrag = { startY: e.clientY, dy: 0, moved: false };
+  panelPeek.classList.add("dragging");
+  panelPeek.setPointerCapture(e.pointerId);
+});
+panelPeek.addEventListener("pointermove", (e) => {
+  if (!peekDrag) return;
+  const dy = e.clientY - peekDrag.startY;
+  if (Math.abs(dy) > 4) peekDrag.moved = true;
+  peekDrag.dy = Math.min(0, dy);
+  panelPeek.style.transform = `translateY(${peekDrag.dy}px)`;
+});
+function endPeekDrag(commit) {
+  if (!peekDrag) return;
+  panelPeek.classList.remove("dragging");
+  const tap = !peekDrag.moved;
+  const swipedUp = peekDrag.dy < -40;
+  if (commit && (tap || swipedUp)) {
+    restorePanel();
+  } else {
+    panelPeek.style.transform = "";
+  }
+  peekDrag = null;
+}
+panelPeek.addEventListener("pointerup", () => endPeekDrag(true));
+panelPeek.addEventListener("pointercancel", () => endPeekDrag(false));
 
 // ---- timezone lookup (lazy-loaded; falls back to longitude-based estimate) ----
 let tzLookupPromise = null;
@@ -105,7 +204,17 @@ function fmtBearing(deg) {
 }
 
 export async function showPanelForLocation({ lat, lon, name }, date = new Date()) {
+  const times = getTimesForLocation(lat, lon, date);
+  lastLocation = { lat, lon, name, date, currentPrayer: times.currentPrayer };
+
+  if (dismissed) {
+    showPeek(lastLocation);
+    return;
+  }
+
+  panelPeek.hidden = true;
   panel.hidden = false;
+  panel.style.transform = "";
   panelLocation.textContent = name || "Selected location";
   panelCoords.textContent = fmtCoords(lat, lon);
   panelDate.textContent = "Loading local time…";

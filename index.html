@@ -47,6 +47,7 @@
     </aside>
 
     <aside id="panel" hidden>
+      <div id="panelHandle" aria-hidden="true"></div>
       <button id="panelClose" aria-label="Close">&times;</button>
       <h2 id="panelLocation">&mdash;</h2>
       <div id="panelCoords" class="muted"></div>
@@ -57,6 +58,12 @@
       </table>
       <div id="panelQibla" class="muted"></div>
     </aside>
+
+    <button id="panelPeek" hidden>
+      <div class="peekHandle" aria-hidden="true"></div>
+      <span class="peekName">&mdash;</span>
+      <span class="peekCur"></span>
+    </button>
 
     <div id="hud">
       <input id="search" type="text" placeholder="Search a city…" autocomplete="off" />
