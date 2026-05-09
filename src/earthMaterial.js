@@ -56,13 +56,6 @@ const FRAG = /* glsl */ `
     float sinAlt = clamp(dot(sd, n), -1.0, 1.0);
     float alt = asin(sinAlt);
 
-    // East tangent at the observer. Deliberately NOT normalized:
-    // cross((0,1,0), n) has length cos(lat), which goes to 0 at the
-    // geographic poles. Skipping normalize() lets the morning / afternoon
-    // split naturally fade to a 50/50 mix at the pole instead of amplifying
-    // floating-point noise into a pinwheel.
-    vec3 east = cross(vec3(0.0, 1.0, 0.0), n);
-
     float diff = lat - decl;
     float zenithDiff = clamp(sqrt(diff * diff + 0.0005), 0.0, 1.4);
     float altAsr = atan(1.0 / (1.0 + tan(zenithDiff)));
@@ -76,21 +69,35 @@ const FRAG = /* glsl */ `
     float wHor  = smoothstep(-B, B, alt);
     float wAsr  = smoothstep(altAsr - B, altAsr + B, alt);
 
-    // morning vs afternoon with wider smoothing at midnight meridian
-    float morningness = smoothstep(-0.06, 0.06, dot(sd, east));
+    // Shar'ī midnight = midpoint of the night (sunset → next-day Fajr).
+    // Solved in closed form from each pixel's hour angle so the cutoff is
+    // exact, not the antisolar-meridian approximation. Equation of time is
+    // baked into sunDir already (see sunPosition() in solar.js), so the
+    // subsolar longitude derived here carries the correction implicitly.
+    //   H_set  = sunset hour-angle (alt = 0° going down)
+    //   H_fajr = Fajr hour-angle  (alt = -16° going up next morning)
+    //   H_mid  = π + (H_set - H_fajr) / 2  — earlier than solar midnight
+    //            because the night is asymmetric (sunset at 0°, dawn at -16°).
+    float lonP   = atan(-n.z, n.x);
+    float lonS   = atan(-sd.z, sd.x);
+    float Hp     = mod(lonP - lonS, TWO_PI);
+    float cosLat = cos(lat);
+    float cosDec = cos(decl);
+    float Hset   = acos(clamp(-tan(lat) * tan(decl), -1.0, 1.0));
+    float Hfajr  = acos(clamp((sin(FAJR_ANGLE) - sin(lat) * sin(decl)) / max(cosLat * cosDec, 1e-4), -1.0, 1.0));
+    float Hmid   = PI + (Hset - Hfajr) * 0.5;
+    // Smoothing band ~2.3° in hour angle (~9 min of solar time).
+    float pastMidnight = smoothstep(Hmid - 0.04, Hmid + 0.04, Hp);
 
     // ---- morning branch ----
-    // Per Ja'fari fiqh, Isha's dedicated time (waqt) ends at shar'ī
-    // midnight (the midpoint between sunset and dawn), not at the next
-    // day's Fajr. We approximate shar'ī midnight as the moment morningness
-    // flips from 0 to 1 (solar midnight); after that point — i.e., on the
-    // morning side of the planet — only Fajr is in its dedicated waqt.
+    // After shar'ī midnight (pastMidnight ≈ 1) Isha's waqt has ended; only
+    // Fajr is in its dedicated waqt here.
     //
     // morningColor stays as mix(cIsha → cFajr) by altitude so that, right
-    // at the solar-midnight seam where morningness ∈ (0,1), the blend with
-    // the afternoon side stays consistent (the afternoon side at deep
-    // night is cIsha, so the seam interpolates cIsha→cIsha without a
-    // spurious Fajr tint). morningCoverage drops to 0 outside the Fajr
+    // at the seam where pastMidnight ∈ (0,1), the blend with the afternoon
+    // side stays consistent (the afternoon side at deep night is cIsha, so
+    // the seam interpolates cIsha→cIsha without a spurious Fajr tint).
+    // morningCoverage drops to 0 outside the Fajr
     // altitude window, so we never actually paint Isha on the morning
     // side — only Fajr inside its window.
     vec3 morningColor = mix(cIsha, cFajr, wFajr);
@@ -119,8 +126,8 @@ const FRAG = /* glsl */ `
     float dayEn     = mix(asrOrDhuhrEn, enDhuhr, wAsr);
     float afternoonEnable = mix(twilEn, dayEn, wHor);
 
-    vec3 prayerColor = mix(afternoonColor, morningColor, morningness);
-    float coverage = mix(afternoonEnable, morningCoverage, morningness);
+    vec3 prayerColor = mix(afternoonColor, morningColor, pastMidnight);
+    float coverage = mix(afternoonEnable, morningCoverage, pastMidnight);
 
     // Uniformly-lit base earth (no day/night terminator).
     vec3 baseCol = sampleEquirect(dayMap, n).rgb * dayBoost + 0.14;
