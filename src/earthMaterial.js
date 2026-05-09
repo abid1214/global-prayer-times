@@ -136,14 +136,18 @@ const FRAG = /* glsl */ `
     // calculation breaks down, fade the prayer overlay out — Aqrab
     // al-Bilad (the dominant Shia high-lat ruling) projects the schedule
     // onto a single nearest-locality point, which doesn't have a clean
-    // spatial coloring. The threshold is *sun-relative*, not a fixed
-    // geographic latitude: Fajr fails (sun never reaches -16° below
-    // horizon) when |φ + δ| > 74° = 90° - 16°, so the cutoff tilts with
-    // the season. In northern summer (δ ≈ +23°) the Arctic cap is large
-    // and the Antarctic cap vanishes; in winter the asymmetry flips.
-    const float CALC_LIMIT = 1.29154; // 74° in radians
-    float northThresh =  CALC_LIMIT - decl;
-    float southThresh = -CALC_LIMIT - decl;
+    // spatial coloring. Two failure modes, both sun-relative:
+    //   • Fajr fails (sun never reaches -16° below horizon) when
+    //     |φ + δ| > 74° = 90° - 16°.
+    //   • Polar night (sun never rises) when |φ - δ| > 90° — Adhan can't
+    //     produce a Maghrib / sunrise here either.
+    // The cap is whichever kicks in first per hemisphere, so e.g. at the
+    // June solstice the Arctic cap is Fajr-driven (~50.5°N) while the
+    // Antarctic cap is polar-night-driven (~66.5°S).
+    const float FAJR_LIMIT = 1.29154; // 74° in radians (90° - 16°)
+    const float DAY_LIMIT  = 1.5708;  // 90° in radians (no sunrise)
+    float northThresh = min(FAJR_LIMIT - decl, DAY_LIMIT + decl);
+    float southThresh = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl);
     float fadeNorth = smoothstep(northThresh - 0.04, northThresh + 0.04, lat);
     float fadeSouth = 1.0 - smoothstep(southThresh - 0.04, southThresh + 0.04, lat);
     float poleFade = 1.0 - max(fadeNorth, fadeSouth);

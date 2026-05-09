@@ -129,7 +129,8 @@ const SUN_DISTANCE = 60;
       varying vec3 vViewDir;
       void main() {
         vec4 worldPos = modelMatrix * vec4(position, 1.0);
-        vNormal = normalize(normalMatrix * normal);
+        // Keep vNormal and vViewDir in the same (world) space.
+        vNormal = normalize(mat3(modelMatrix) * normal);
         vViewDir = normalize(cameraPosition - worldPos.xyz);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
@@ -216,7 +217,9 @@ function makeSun() {
         varying vec3 vViewDir;
         void main() {
           vec4 worldPos = modelMatrix * vec4(position, 1.0);
-          vNormal = normalize(normalMatrix * normal);
+          // Both vNormal and vViewDir in world space so the Fresnel dot
+          // product doesn't drift as the camera orbits.
+          vNormal = normalize(mat3(modelMatrix) * normal);
           vViewDir = normalize(cameraPosition - worldPos.xyz);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
