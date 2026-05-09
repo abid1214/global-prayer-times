@@ -632,4 +632,21 @@ html, body {
   .toggle { padding: 8px 0; }
   #scrub::-webkit-slider-thumb { width: 22px; height: 22px; }
   #scrub::-moz-range-thumb { width: 22px; height: 22px; }
+
+  /* backdrop-filter forces the compositor to re-blur the canvas behind
+     every overlay on every frame the canvas redraws. That's the dominant
+     cost during a fling on iOS Safari. Turn it off on touch devices and
+     compensate with a more opaque solid background. */
+  #legend,
+  #panel,
+  #scrubber,
+  #search,
+  #searchResults,
+  #infoModal,
+  #panelPeek {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(12, 16, 26, 0.95);
+  }
+  #infoOverlay { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
