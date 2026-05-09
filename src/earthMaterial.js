@@ -132,14 +132,21 @@ const FRAG = /* glsl */ `
     // Uniformly-lit base earth (no day/night terminator).
     vec3 baseCol = sampleEquirect(dayMap, n).rgb * dayBoost + 0.14;
 
-    // Above ~60° N/S the altitude-based Ja'fari definitions become unreliable
-    // and Aqrab al-Bilad (the dominant Shia high-latitude ruling) projects
-    // the schedule onto a single nearest-locality point — which doesn't have
-    // a clean spatial coloring. We fade the prayer overlay out so the
-    // polar caps just show geography. The side panel still shows projected
-    // times for any polar click.
-    const float LAT_THRESH = 1.047; // 60° in radians
-    float poleFade = 1.0 - smoothstep(LAT_THRESH - 0.04, LAT_THRESH + 0.04, abs(lat));
+    // Above the latitude where the standard altitude-based Ja'fari
+    // calculation breaks down, fade the prayer overlay out — Aqrab
+    // al-Bilad (the dominant Shia high-lat ruling) projects the schedule
+    // onto a single nearest-locality point, which doesn't have a clean
+    // spatial coloring. The threshold is *sun-relative*, not a fixed
+    // geographic latitude: Fajr fails (sun never reaches -16° below
+    // horizon) when |φ + δ| > 74° = 90° - 16°, so the cutoff tilts with
+    // the season. In northern summer (δ ≈ +23°) the Arctic cap is large
+    // and the Antarctic cap vanishes; in winter the asymmetry flips.
+    const float CALC_LIMIT = 1.29154; // 74° in radians
+    float northThresh =  CALC_LIMIT - decl;
+    float southThresh = -CALC_LIMIT - decl;
+    float fadeNorth = smoothstep(northThresh - 0.04, northThresh + 0.04, lat);
+    float fadeSouth = 1.0 - smoothstep(southThresh - 0.04, southThresh + 0.04, lat);
+    float poleFade = 1.0 - max(fadeNorth, fadeSouth);
 
     float strength = coverage * prayerOpacity * prayerEnabled * poleFade;
     vec3 tinted = mix(baseCol, prayerColor, strength * 0.92);

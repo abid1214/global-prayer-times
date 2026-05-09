@@ -1,5 +1,5 @@
 import * as adhan from "adhan";
-import { classifyPrayer } from "./solar.js";
+import { classifyPrayer, sunPosition } from "./solar.js";
 
 // Shia Ja'fari (Leva Institute Qum) parameters: Fajr 16°, Isha 14°, Maghrib 4°.
 // Asr uses shadow factor 1 (Madhab.Shafi in adhan-js).
@@ -21,17 +21,26 @@ const PRAYER_META = [
   { key: "isha",    label: "Isha",    color: "#283F6E" },
 ];
 
-// Aqrab al-Bilad threshold. Above this latitude the Ja'fari altitude-based
-// definitions can fail (sun never reaches -16° at summer solstice above ~51°,
-// never sets above the Arctic Circle). The dominant Shia ruling is to adopt
-// the schedule of the nearest latitude where the calculation works; we
-// approximate that by clamping the effective latitude. The same threshold is
-// hard-coded in the shader.
-const LAT_THRESH_DEG = 60;
+// Aqrab al-Bilad threshold is sun-relative, not a fixed latitude. The
+// standard altitude-based Ja'fari calculation breaks when the sun never
+// reaches Fajr's -16° below horizon — geometrically, when |φ + δ| > 74°.
+// At δ = 0 the cap is symmetric ±74°; in summer (δ ≈ +23°) the same-
+// hemisphere cap shrinks to ~51° while the opposite hemisphere has no
+// cap at all, and vice versa in winter. Same logic mirrored in the
+// fragment shader.
+const FAJR_LIMIT_DEG = 74;
 
 export function getTimesForLocation(latDeg, lonDeg, date = new Date()) {
-  const projected = Math.abs(latDeg) > LAT_THRESH_DEG;
-  const effLatDeg = projected ? Math.sign(latDeg) * LAT_THRESH_DEG : latDeg;
+  const { declination } = sunPosition(date);
+  const declDeg = (declination * 180) / Math.PI;
+  const northThresh =  FAJR_LIMIT_DEG - declDeg;
+  const southThresh = -FAJR_LIMIT_DEG - declDeg;
+
+  let effLatDeg = latDeg;
+  if (latDeg > northThresh) effLatDeg = northThresh;
+  else if (latDeg < southThresh) effLatDeg = southThresh;
+  const projected = effLatDeg !== latDeg;
+
   const coords = new adhan.Coordinates(effLatDeg, lonDeg);
   const params = jafariParams();
   const times = new adhan.PrayerTimes(coords, date, params);
