@@ -89,13 +89,26 @@ const FRAG = /* glsl */ `
     float morningCoverage = wFajr * (1.0 - wHor) * enFajr;
 
     // ---- afternoon branch ----
-    vec3 nightZone = mix(cIsha, cMaghrib, wIsha);
+    // The Ja'fari "shared time" regions: Dhuhr+Asr after shadow=1 (both
+    // valid until sunset) and Maghrib+Isha after shafaq (both valid until
+    // shar'ī midnight). The shader paints one color per pixel, so by
+    // default it shows the later-entered prayer (Asr / Isha) as the
+    // "current" one. But when that later prayer is filtered off via the
+    // legend toggles, fall back to the earlier prayer's color so the
+    // earlier prayer's full waqt remains visible — otherwise turning Isha
+    // off makes Maghrib appear to end at -14° instead of at midnight.
+    vec3 asrOrDhuhr     = mix(cDhuhr, cAsr, enAsr);
+    float asrOrDhuhrEn  = max(enAsr, enDhuhr);
+    vec3 ishaOrMaghrib  = mix(cMaghrib, cIsha, enIsha);
+    float ishaOrMaghribEn = max(enIsha, enMaghrib);
+
+    vec3 nightZone = mix(ishaOrMaghrib, cMaghrib, wIsha);
     vec3 twilight  = mix(nightZone, cAsr, wMag);
-    vec3 daytime   = mix(cAsr, cDhuhr, wAsr);
+    vec3 daytime   = mix(asrOrDhuhr, cDhuhr, wAsr);
     vec3 afternoonColor = mix(twilight, daytime, wHor);
-    float nightEn   = mix(enIsha, enMaghrib, wIsha);
+    float nightEn   = mix(ishaOrMaghribEn, enMaghrib, wIsha);
     float twilEn    = mix(nightEn, enAsr, wMag);
-    float dayEn     = mix(enAsr, enDhuhr, wAsr);
+    float dayEn     = mix(asrOrDhuhrEn, enDhuhr, wAsr);
     float afternoonEnable = mix(twilEn, dayEn, wHor);
 
     vec3 prayerColor = mix(afternoonColor, morningColor, morningness);
