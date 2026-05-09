@@ -17,7 +17,16 @@ const MECCA_LON = 39.8262;
 
 const canvas = document.getElementById("globe");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const HI_DPR = Math.min(window.devicePixelRatio, 2);
+const LO_DPR = Math.min(window.devicePixelRatio, 1);
+let currentDPR = HI_DPR;
+function setDPR(dpr) {
+  if (dpr === currentDPR) return;
+  currentDPR = dpr;
+  renderer.setPixelRatio(dpr);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+}
+renderer.setPixelRatio(HI_DPR);
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
@@ -357,15 +366,24 @@ controls.addEventListener("change", markDirty);
 
 function start() {
   let lastUniformUpdate = 0;
+  let lastMotion = -Infinity;
   function tick(t) {
-    const now = effectiveNow();
     if (t - lastUniformUpdate > 500) {
+      const now = effectiveNow();
       updateSunUniforms(now);
       updateClock(now, scrubLive);
       lastUniformUpdate = t;
       dirty = true;
     }
-    if (controls.update()) dirty = true;
+    const moving = controls.update();
+    if (moving) {
+      lastMotion = t;
+      if (currentDPR !== LO_DPR) setDPR(LO_DPR);
+      dirty = true;
+    } else if (currentDPR !== HI_DPR && t - lastMotion > 80) {
+      setDPR(HI_DPR);
+      dirty = true;
+    }
     if (dirty) {
       renderer.render(scene, camera);
       dirty = false;
