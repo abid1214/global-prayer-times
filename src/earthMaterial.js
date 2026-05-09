@@ -111,7 +111,7 @@ export function createEarthMaterial({ dayMap }) {
       dayMap: { value: dayMap },
       sunDir: { value: new THREE.Vector3(1, 0, 0) },
       decl: { value: 0 },
-      prayerOpacity: { value: 1.0 },
+      prayerOpacity: { value: 0.85 },
       dayBoost: { value: 2.7 },
       prayerEnabled: { value: 1.0 },
       enFajr: { value: 1.0 },

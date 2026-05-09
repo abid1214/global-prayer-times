@@ -1,5 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 
 import { sunPosition, latLonToVec3 } from "./solar.js";
 import { createEarthMaterial } from "./earthMaterial.js";
@@ -178,13 +181,12 @@ function setQiblaFrom(latDeg, lonDeg) {
   const A = new THREE.Vector3(...latLonToVec3(aRad[0], aRad[1]));
   const B = new THREE.Vector3(...latLonToVec3(bRad[0], bRad[1]));
 
-  // If clicked location IS Mecca (or extremely close), skip drawing.
   if (A.distanceTo(B) < 0.001) return;
 
   const omega = Math.acos(Math.max(-1, Math.min(1, A.dot(B))));
   const sinOmega = Math.sin(omega);
   const N = 96;
-  const points = [];
+  const positions = [];
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const a = Math.sin((1 - t) * omega) / sinOmega;
@@ -193,16 +195,22 @@ function setQiblaFrom(latDeg, lonDeg) {
       .copy(A).multiplyScalar(a)
       .addScaledVector(B, b)
       .normalize()
-      .multiplyScalar(1.012);
-    points.push(v);
+      .multiplyScalar(1.018);
+    positions.push(v.x, v.y, v.z);
   }
-  const geom = new THREE.BufferGeometry().setFromPoints(points);
-  const mat = new THREE.LineBasicMaterial({
-    color: 0xffd86b,
+  const geom = new LineGeometry();
+  geom.setPositions(positions);
+  const mat = new LineMaterial({
+    color: 0xffe066,
+    linewidth: 3.5,
     transparent: true,
-    opacity: 0.85,
+    opacity: 1.0,
+    depthTest: false,
+    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
   });
-  qiblaLine = new THREE.Line(geom, mat);
+  qiblaLine = new Line2(geom, mat);
+  qiblaLine.renderOrder = 2;
+  qiblaLine.computeLineDistances();
   earthGroup.add(qiblaLine);
 }
 
@@ -331,6 +339,9 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight, false);
+  if (qiblaLine) {
+    qiblaLine.material.resolution.set(window.innerWidth, window.innerHeight);
+  }
 });
 
 // ---- click → lat/lon ----
