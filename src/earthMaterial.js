@@ -80,10 +80,13 @@ const FRAG = /* glsl */ `
     float morningness = smoothstep(-0.06, 0.06, dot(sd, east));
 
     // ---- morning branch ----
-    vec3 morningColor = mix(cIsha, cFajr, wFajr);
-    float morningCoverage = 1.0 - wHor;
-    float morningEnable = mix(enIsha, enFajr, wFajr);
-    morningCoverage *= morningEnable;
+    // Per Ja'fari fiqh, Isha's dedicated time (waqt) ends at shar'ī
+    // midnight (the midpoint between sunset and dawn), not at the next
+    // day's Fajr. We approximate shar'ī midnight as the moment morningness
+    // flips from 0 to 1 (solar midnight); after that point — i.e., on the
+    // morning side of the planet — only Fajr is in its dedicated waqt.
+    vec3 morningColor = cFajr;
+    float morningCoverage = wFajr * (1.0 - wHor) * enFajr;
 
     // ---- afternoon branch ----
     vec3 nightZone = mix(cIsha, cMaghrib, wIsha);
