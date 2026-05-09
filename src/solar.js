@@ -102,7 +102,10 @@ export function classifyPrayer(latRad, lonRad, date) {
     return alt >= altAsr ? "dhuhr" : "asr";
   }
   if (morning) {
-    return alt > FAJR ? "fajr" : "isha";
+    // Past shar'ī midnight (~ solar midnight, used as the proxy here):
+    // Isha's waqt has ended. Until the sun reaches the Fajr angle there
+    // is no prayer in its dedicated time.
+    return alt > FAJR ? "fajr" : "none";
   }
   if (alt > MAGHRIB) return "asr";        // sunset → -4°, Asr's time still extending
   if (alt > ISHA) return "maghrib";

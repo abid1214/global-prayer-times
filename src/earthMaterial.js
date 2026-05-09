@@ -80,19 +80,43 @@ const FRAG = /* glsl */ `
     float morningness = smoothstep(-0.06, 0.06, dot(sd, east));
 
     // ---- morning branch ----
+    // Per Ja'fari fiqh, Isha's dedicated time (waqt) ends at shar'ī
+    // midnight (the midpoint between sunset and dawn), not at the next
+    // day's Fajr. We approximate shar'ī midnight as the moment morningness
+    // flips from 0 to 1 (solar midnight); after that point — i.e., on the
+    // morning side of the planet — only Fajr is in its dedicated waqt.
+    //
+    // morningColor stays as mix(cIsha → cFajr) by altitude so that, right
+    // at the solar-midnight seam where morningness ∈ (0,1), the blend with
+    // the afternoon side stays consistent (the afternoon side at deep
+    // night is cIsha, so the seam interpolates cIsha→cIsha without a
+    // spurious Fajr tint). morningCoverage drops to 0 outside the Fajr
+    // altitude window, so we never actually paint Isha on the morning
+    // side — only Fajr inside its window.
     vec3 morningColor = mix(cIsha, cFajr, wFajr);
-    float morningCoverage = 1.0 - wHor;
-    float morningEnable = mix(enIsha, enFajr, wFajr);
-    morningCoverage *= morningEnable;
+    float morningCoverage = wFajr * (1.0 - wHor) * enFajr;
 
     // ---- afternoon branch ----
-    vec3 nightZone = mix(cIsha, cMaghrib, wIsha);
+    // The Ja'fari "shared time" regions: Dhuhr+Asr after shadow=1 (both
+    // valid until sunset) and Maghrib+Isha after shafaq (both valid until
+    // shar'ī midnight). The shader paints one color per pixel, so by
+    // default it shows the later-entered prayer (Asr / Isha) as the
+    // "current" one. But when that later prayer is filtered off via the
+    // legend toggles, fall back to the earlier prayer's color so the
+    // earlier prayer's full waqt remains visible — otherwise turning Isha
+    // off makes Maghrib appear to end at -14° instead of at midnight.
+    vec3 asrOrDhuhr     = mix(cDhuhr, cAsr, enAsr);
+    float asrOrDhuhrEn  = max(enAsr, enDhuhr);
+    vec3 ishaOrMaghrib  = mix(cMaghrib, cIsha, enIsha);
+    float ishaOrMaghribEn = max(enIsha, enMaghrib);
+
+    vec3 nightZone = mix(ishaOrMaghrib, cMaghrib, wIsha);
     vec3 twilight  = mix(nightZone, cAsr, wMag);
-    vec3 daytime   = mix(cAsr, cDhuhr, wAsr);
+    vec3 daytime   = mix(asrOrDhuhr, cDhuhr, wAsr);
     vec3 afternoonColor = mix(twilight, daytime, wHor);
-    float nightEn   = mix(enIsha, enMaghrib, wIsha);
+    float nightEn   = mix(ishaOrMaghribEn, enMaghrib, wIsha);
     float twilEn    = mix(nightEn, enAsr, wMag);
-    float dayEn     = mix(enAsr, enDhuhr, wAsr);
+    float dayEn     = mix(asrOrDhuhrEn, enDhuhr, wAsr);
     float afternoonEnable = mix(twilEn, dayEn, wHor);
 
     vec3 prayerColor = mix(afternoonColor, morningColor, morningness);
