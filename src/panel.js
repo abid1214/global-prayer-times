@@ -126,7 +126,12 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
 function render(lat, lon, date, tz) {
   const times = getTimesForLocation(lat, lon, date);
 
-  panelDate.textContent = `${fmtDateLabel(date, tz)} · ${tzLabel(tz, date)}`;
+  let dateLine = `${fmtDateLabel(date, tz)} · ${tzLabel(tz, date)}`;
+  if (times.aqrab) {
+    const hemi = times.aqrab.projectedFromLat >= 0 ? "N" : "S";
+    dateLine += ` · projected from ${Math.abs(times.aqrab.projectedFromLat)}°${hemi} (Aqrab al-Bilād)`;
+  }
+  panelDate.textContent = dateLine;
 
   const cur = times.currentPrayer;
   const meta = PRAYER_META.find((p) => p.key === cur);

@@ -51,15 +51,34 @@ const FRAG = /* glsl */ `
     vec3 n = normalize(vNormalLocal);
     vec3 sd = normalize(sunDir);
 
-    float sinAlt = clamp(dot(sd, n), -1.0, 1.0);
+    // Aqrab al-Bilad fallback: above LAT_THRESH the standard altitude-based
+    // Ja'fari calculation can fail (sun never reaches -16° at summer solstice
+    // above ~51°, never sets above the Arctic Circle). The dominant Shia
+    // ruling (Sistani, Khamenei) is to adopt the schedule of the nearest
+    // latitude where the calculation works. We implement that by smoothly
+    // clamping the point's effective latitude before computing prayer
+    // windows. The base earth texture still uses the original normal.
+    const float LAT_THRESH = 1.047; // 60° in radians
+    float latReal = asin(clamp(n.y, -1.0, 1.0));
+    float lonReal = atan(-n.z, n.x);
+    float blend = smoothstep(LAT_THRESH - 0.08, LAT_THRESH + 0.08, abs(latReal));
+    float effLat = mix(latReal, sign(latReal) * LAT_THRESH, blend);
+    float cl = cos(effLat);
+    vec3 nP = vec3(cl * cos(lonReal), sin(effLat), -cl * sin(lonReal));
+
+    float sinAlt = clamp(dot(sd, nP), -1.0, 1.0);
     float alt = asin(sinAlt);
 
-    vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), n));
+    // East tangent at the (projected) point. We deliberately do NOT
+    // normalize: cross((0,1,0), nP) has length cos(effLat), which goes to 0
+    // at the geographic poles. Skipping normalize() lets the morning /
+    // afternoon split naturally fade to a 50/50 mix at the pole instead of
+    // amplifying floating-point noise into a pinwheel.
+    vec3 east = cross(vec3(0.0, 1.0, 0.0), nP);
 
-    // Asr altitude threshold — smooth abs(lat-decl) to remove the V-kink
-    // at the subsolar latitude where the derivative would otherwise jump.
-    float lat = asin(clamp(n.y, -1.0, 1.0));
-    float diff = lat - decl;
+    // Asr altitude threshold uses effLat too, so the Asr band lines up with
+    // the rest of the projected windows.
+    float diff = effLat - decl;
     float zenithDiff = clamp(sqrt(diff * diff + 0.0005), 0.0, 1.4);
     float altAsr = atan(1.0 / (1.0 + tan(zenithDiff)));
 
