@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Global Prayer Times</title>
   <link rel="stylesheet" href="./styles.css" />
   <script type="importmap">
@@ -25,7 +25,10 @@
     </header>
 
     <aside id="legend">
-      <h3>Prayer windows <button id="infoBtn" aria-label="How it works">i</button></h3>
+      <h3>Prayer windows
+        <button id="legendToggle" aria-label="Toggle legend" aria-expanded="true">▾</button>
+        <button id="infoBtn" aria-label="How it works">i</button>
+      </h3>
       <ul>
         <li><label class="prayer-toggle" data-prayer="fajr"><input type="checkbox" checked /><span class="swatch" style="background:#7a52c4"></span>Fajr</label></li>
         <li><label class="prayer-toggle" data-prayer="dhuhr"><input type="checkbox" checked /><span class="swatch" style="background:#F2B33D"></span>Dhuhr</label></li>

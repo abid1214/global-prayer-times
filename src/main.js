@@ -297,6 +297,14 @@ function initToggles() {
     });
   });
 
+  // collapsible legend (mobile)
+  const legend = document.getElementById("legend");
+  const legendToggle = document.getElementById("legendToggle");
+  legendToggle?.addEventListener("click", () => {
+    const expanded = legend.classList.toggle("expanded");
+    legendToggle.setAttribute("aria-expanded", String(expanded));
+  });
+
   // info modal
   const overlay = document.getElementById("infoOverlay");
   document.getElementById("infoBtn").addEventListener("click", () => {
