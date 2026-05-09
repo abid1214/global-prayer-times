@@ -142,6 +142,11 @@ let qiblaLine = null;
   pinMesh.visible = false;
   earthGroup.add(pinMesh);
 
+  const meccaPin = makeMeccaPin();
+  const m = latLonToVec3((MECCA_LAT * Math.PI) / 180, (MECCA_LON * Math.PI) / 180);
+  meccaPin.position.set(m[0] * 1.006, m[1] * 1.006, m[2] * 1.006);
+  earthGroup.add(meccaPin);
+
   initToggles();
   initScrubber();
   start();
@@ -158,6 +163,23 @@ function makePin() {
     opacity: 0.45,
   });
   mesh.add(new THREE.Mesh(glowGeo, glowMat));
+  return mesh;
+}
+
+function makeMeccaPin() {
+  const g = new THREE.SphereGeometry(0.014, 18, 14);
+  const m = new THREE.MeshBasicMaterial({ color: 0xffe066 });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.renderOrder = 3;
+  const glowGeo = new THREE.SphereGeometry(0.028, 18, 14);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0xffd84d,
+    transparent: true,
+    opacity: 0.55,
+  });
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  glow.renderOrder = 3;
+  mesh.add(glow);
   return mesh;
 }
 
