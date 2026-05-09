@@ -85,26 +85,37 @@ const MAGHRIB = -4 * DEG;
 const ISHA = -14 * DEG;
 
 export function classifyPrayer(latRad, lonRad, date) {
-  const { sunDir, declination } = sunPosition(date);
+  const { sunDir, declination, subsolarLon } = sunPosition(date);
   const n = latLonToVec3(latRad, lonRad);
   const sinAlt = sunDir[0] * n[0] + sunDir[1] * n[1] + sunDir[2] * n[2];
   const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
 
-  // east tangent at observer = cross(up, n) = (n.z, 0, -n.x)
-  const eastDot = sunDir[0] * n[2] + sunDir[2] * -n[0];
-  const morning = eastDot > 0;
+  // Closed-form shar'ī midnight check — mirrors the shader so the panel's
+  // "Now in" indicator stays in lockstep with the globe coloring.
+  // Hp = pixel hour angle in [0, 2π); Hmid = midpoint of the night between
+  // sunset (alt = 0°) and next dawn (alt = FAJR = -16°).
+  const TWO_PI = 2 * Math.PI;
+  const Hp = ((lonRad - subsolarLon) % TWO_PI + TWO_PI) % TWO_PI;
+  const cosLat = Math.cos(latRad);
+  const cosDec = Math.cos(declination);
+  const cosHset = -Math.tan(latRad) * Math.tan(declination);
+  const Hset = Math.acos(Math.max(-1, Math.min(1, cosHset)));
+  const cosHfajr = (Math.sin(FAJR) - Math.sin(latRad) * Math.sin(declination)) /
+                   Math.max(cosLat * cosDec, 1e-4);
+  const Hfajr = Math.acos(Math.max(-1, Math.min(1, cosHfajr)));
+  const Hmid = Math.PI + (Hset - Hfajr) / 2;
+  const pastMidnight = Hp > Hmid;
 
   const zenithDiff = Math.min(Math.abs(latRad - declination), 1.4);
   const altAsr = Math.atan(1 / (1 + Math.tan(zenithDiff)));
 
   if (alt > 0) {
-    if (morning) return "none"; // post-sunrise, pre-Dhuhr
+    if (pastMidnight) return "none"; // post-sunrise, pre-Dhuhr
     return alt >= altAsr ? "dhuhr" : "asr";
   }
-  if (morning) {
-    // Past shar'ī midnight (~ solar midnight, used as the proxy here):
-    // Isha's waqt has ended. Until the sun reaches the Fajr angle there
-    // is no prayer in its dedicated time.
+  if (pastMidnight) {
+    // After shar'ī midnight Isha's waqt has ended. Until the sun reaches
+    // the Fajr angle there is no prayer in its dedicated time.
     return alt > FAJR ? "fajr" : "none";
   }
   if (alt > MAGHRIB) return "asr";        // sunset → -4°, Asr's time still extending
