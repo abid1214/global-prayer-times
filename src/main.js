@@ -8,7 +8,6 @@ import { initSearch } from "./search.js";
 
 // Uniformly-lit NASA Blue Marble composite (no baked-in sunlight shading).
 const DAY_TEXTURE = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
-const NIGHT_TEXTURE = "https://unpkg.com/three-globe/example/img/earth-night.jpg";
 
 const MECCA_LAT = 21.4225;
 const MECCA_LON = 39.8262;
@@ -102,11 +101,8 @@ let pinMesh = null;
 let qiblaLine = null;
 
 (async function init() {
-  const [dayTex, nightTex] = await Promise.all([
-    loadTex(DAY_TEXTURE),
-    loadTex(NIGHT_TEXTURE),
-  ]);
-  earthMaterial = createEarthMaterial({ dayMap: dayTex, nightMap: nightTex });
+  const dayTex = await loadTex(DAY_TEXTURE);
+  earthMaterial = createEarthMaterial({ dayMap: dayTex });
   earthMesh = new THREE.Mesh(earthGeo, earthMaterial);
   earthGroup.add(earthMesh);
 
@@ -280,12 +276,8 @@ const PRAYER_UNIFORM_MAP = {
 
 function initToggles() {
   const togglePrayer = document.getElementById("togglePrayer");
-  const toggleDayNight = document.getElementById("toggleDayNight");
   togglePrayer.addEventListener("change", () => {
     earthMaterial.uniforms.prayerEnabled.value = togglePrayer.checked ? 1.0 : 0.0;
-  });
-  toggleDayNight.addEventListener("change", () => {
-    earthMaterial.uniforms.dayNightEnabled.value = toggleDayNight.checked ? 1.0 : 0.0;
   });
 
   // per-prayer color toggles

@@ -470,6 +470,7 @@ html, body {
     width: calc(100vw - 32px);
     max-width: 420px;
     left: calc(16px + env(safe-area-inset-left, 0px));
+    top: calc(46px + env(safe-area-inset-top, 0px));
     transform: none;
   }
   #searchResults { max-height: 50vh; }
@@ -477,7 +478,7 @@ html, body {
   #legend {
     left: calc(12px + env(safe-area-inset-left, 0px));
     right: calc(12px + env(safe-area-inset-right, 0px));
-    top: calc(54px + env(safe-area-inset-top, 0px));
+    top: calc(98px + env(safe-area-inset-top, 0px));
     bottom: auto;
     width: auto;
     max-width: 320px;
