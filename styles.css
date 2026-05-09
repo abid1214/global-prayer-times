@@ -314,6 +314,31 @@ html, body {
 }
 #infoModal a:hover { text-decoration: underline; }
 
+#infoModal .evidence {
+  margin-top: 8px;
+  padding: 4px 0 4px 12px;
+  border-left: 2px solid rgba(106, 168, 255, 0.35);
+}
+#infoModal .evidence p {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+#infoModal .evidence [lang="ar"] {
+  display: block;
+  font-family: "SBL Bibliit", "Geeza Pro", "Noto Naskh Arabic", "Amiri", serif;
+  font-size: 16px;
+  line-height: 1.9;
+  color: var(--fg);
+  margin-bottom: 4px;
+}
+#infoModal .evidence cite {
+  display: inline;
+  font-style: normal;
+  color: var(--accent);
+}
+
 #infoClose {
   position: absolute;
   top: 8px;
