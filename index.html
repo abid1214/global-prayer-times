@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Global Prayer Times</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "adhan": "https://cdn.jsdelivr.net/npm/adhan@4.4.3/+esm"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <canvas id="globe"></canvas>
+
+    <header id="topbar">
+      <div class="title">Global Prayer Times <span class="muted">— Shia (Ja'fari)</span></div>
+      <div id="clock"></div>
+    </header>
+
+    <aside id="legend">
+      <h3>Prayer windows <button id="infoBtn" aria-label="How it works">i</button></h3>
+      <ul>
+        <li><label class="prayer-toggle" data-prayer="fajr"><input type="checkbox" checked /><span class="swatch" style="background:#7a52c4"></span>Fajr</label></li>
+        <li><label class="prayer-toggle" data-prayer="dhuhr"><input type="checkbox" checked /><span class="swatch" style="background:#F2B33D"></span>Dhuhr</label></li>
+        <li><label class="prayer-toggle" data-prayer="asr"><input type="checkbox" checked /><span class="swatch" style="background:#E07A3E"></span>Asr</label></li>
+        <li><label class="prayer-toggle" data-prayer="maghrib"><input type="checkbox" checked /><span class="swatch" style="background:#C44569"></span>Maghrib</label></li>
+        <li><label class="prayer-toggle" data-prayer="isha"><input type="checkbox" checked /><span class="swatch" style="background:#3b5998"></span>Isha</label></li>
+      </ul>
+      <div class="toggles">
+        <label class="toggle"><input type="checkbox" id="togglePrayer" checked /><span>Prayer shading</span></label>
+        <label class="toggle"><input type="checkbox" id="toggleDayNight" checked /><span>Day / night</span></label>
+      </div>
+      <p class="hint">Click anywhere on the globe to see today's prayer times for that location.</p>
+    </aside>
+
+    <aside id="panel" hidden>
+      <button id="panelClose" aria-label="Close">&times;</button>
+      <h2 id="panelLocation">&mdash;</h2>
+      <div id="panelCoords" class="muted"></div>
+      <div id="panelDate" class="muted"></div>
+      <div id="panelCurrent"></div>
+      <table id="panelTimes">
+        <tbody></tbody>
+      </table>
+      <div id="panelQibla" class="muted"></div>
+    </aside>
+
+    <div id="hud">
+      <input id="search" type="text" placeholder="Search a city…" autocomplete="off" />
+      <div id="searchResults" hidden></div>
+    </div>
+
+    <div id="scrubber">
+      <button id="liveBtn" class="active" title="Return to live">Live</button>
+      <input id="scrub" type="range" min="-720" max="720" step="5" value="0" />
+      <span id="scrubLabel">now</span>
+    </div>
+
+    <!-- info modal -->
+    <div id="infoOverlay" hidden>
+      <div id="infoModal">
+        <button id="infoClose" aria-label="Close">&times;</button>
+        <h2>How the globe is shaded</h2>
+
+        <h3>Shia (Ja'fari) Prayer Windows</h3>
+        <p>Each pixel on the globe is colored by computing the <strong>sun's altitude angle</strong> at that location in real time, then classifying which of the five prayer windows applies. The Ja'fari (Shia Ithna-Ashari) method uses the following astronomical definitions:</p>
+        <dl>
+          <dt>Fajr</dt>
+          <dd>Begins when the sun is <strong>16&deg; below the horizon</strong> (on the rising / morning side). This marks the start of astronomical dawn. Fajr lasts until sunrise (sun crosses 0&deg;).</dd>
+
+          <dt>Dhuhr</dt>
+          <dd>Begins at <strong>solar noon</strong> (sun crosses the observer's meridian at its highest daily altitude) and lasts until Asr.</dd>
+
+          <dt>Asr</dt>
+          <dd>Begins when the shadow of an object equals its own length <strong>plus</strong> the shadow at noon (shadow factor&nbsp;=&nbsp;1, also used by the Shafi'i school). Mathematically: <code>alt_asr = arctan(1 / (1 + tan(|lat &minus; decl|)))</code>. Asr lasts until sunset.</dd>
+
+          <dt>Maghrib</dt>
+          <dd>Unlike most Sunni methods which start Maghrib at sunset (0&deg;), the Ja'fari method waits until the sun is <strong>4&deg; below the horizon</strong> on the setting side. This accounts for the "redness of the eastern sky" fading. Maghrib lasts until Isha.</dd>
+
+          <dt>Isha</dt>
+          <dd>Begins when the sun is <strong>14&deg; below the horizon</strong> on the setting side. Isha extends through the night until the next day's Fajr.</dd>
+        </dl>
+
+        <h3>Day / Night Shading</h3>
+        <p>The base globe blends between a <em>daytime</em> satellite texture (NASA Blue Marble) and a <em>nighttime</em> city-lights texture, using the sun's altitude at each pixel. The transition is gradual across the twilight zone. The warm glow at the terminator (sunrise/sunset line) simulates atmospheric scattering.</p>
+
+        <h3>Calculation Details</h3>
+        <p>The sun's position (declination + subsolar longitude) is computed from a simplified NOAA solar algorithm, accurate to ~0.01&deg;. Prayer windows are classified per pixel in a GLSL fragment shader, so the visualization runs at full frame rate with smooth, continuous bands — not a discretized grid.</p>
+        <p>Prayer times in the side panel are computed by the <a href="https://github.com/batoulapps/adhan-js" target="_blank">Adhan.js</a> library using the same Ja'fari parameters. Local time zones are resolved via <code>tz-lookup</code>.</p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
