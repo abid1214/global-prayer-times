@@ -44,7 +44,7 @@ camera.lookAt(0, 0, 0);
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+controls.dampingFactor = 0.04;
 controls.rotateSpeed = 0.5;
 controls.enablePan = false;
 controls.minDistance = 1.25;
