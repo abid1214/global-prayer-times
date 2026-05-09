@@ -188,6 +188,7 @@ function setPin(latRad, lonRad) {
   const v = latLonToVec3(latRad, lonRad);
   pinMesh.position.set(v[0] * 1.005, v[1] * 1.005, v[2] * 1.005);
   pinMesh.visible = true;
+  markDirty();
 }
 
 function setQiblaFrom(latDeg, lonDeg) {
@@ -234,6 +235,7 @@ function setQiblaFrom(latDeg, lonDeg) {
   qiblaLine.renderOrder = 2;
   qiblaLine.computeLineDistances();
   earthGroup.add(qiblaLine);
+  markDirty();
 }
 
 // ---- ticking ----
@@ -281,6 +283,10 @@ function initScrubber() {
     scrubLive = scrubOffsetMs === 0;
     label.textContent = fmtOffset(scrubOffsetMs);
     live.classList.toggle("active", scrubLive);
+    const now = effectiveNow();
+    updateSunUniforms(now);
+    updateClock(now, scrubLive);
+    markDirty();
   });
 
   live.addEventListener("click", () => {
@@ -289,6 +295,10 @@ function initScrubber() {
     scrubLive = true;
     label.textContent = "now";
     live.classList.add("active");
+    const now = effectiveNow();
+    updateSunUniforms(now);
+    updateClock(now, scrubLive);
+    markDirty();
   });
 
   label.textContent = "now";
@@ -341,17 +351,25 @@ function initToggles() {
   });
 }
 
+let dirty = true;
+function markDirty() { dirty = true; }
+controls.addEventListener("change", markDirty);
+
 function start() {
   let lastUniformUpdate = 0;
   function tick(t) {
     const now = effectiveNow();
-    if (t - lastUniformUpdate > 100) {
+    if (t - lastUniformUpdate > 500) {
       updateSunUniforms(now);
       updateClock(now, scrubLive);
       lastUniformUpdate = t;
+      dirty = true;
     }
-    controls.update();
-    renderer.render(scene, camera);
+    if (controls.update()) dirty = true;
+    if (dirty) {
+      renderer.render(scene, camera);
+      dirty = false;
+    }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -364,6 +382,7 @@ window.addEventListener("resize", () => {
   if (qiblaLine) {
     qiblaLine.material.resolution.set(window.innerWidth, window.innerHeight);
   }
+  markDirty();
 });
 
 // ---- click → lat/lon ----
@@ -421,6 +440,7 @@ function flyTo(latRad, lonRad) {
     const eased = 1 - Math.pow(1 - k, 3);
     camera.position.lerpVectors(startPos, endPos, eased);
     camera.lookAt(0, 0, 0);
+    markDirty();
     if (k < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
