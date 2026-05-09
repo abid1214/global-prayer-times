@@ -21,6 +21,13 @@ const isMobile = () => window.matchMedia("(max-width: 768px)").matches;
 
 panelClose.addEventListener("click", () => dismissPanel());
 
+let pendingDismissEnd = null;
+function cancelPendingDismiss() {
+  if (!pendingDismissEnd) return;
+  panel.removeEventListener("transitionend", pendingDismissEnd);
+  pendingDismissEnd = null;
+}
+
 function dismissPanel() {
   if (panel.hidden) return;
   if (!isMobile()) {
@@ -28,14 +35,15 @@ function dismissPanel() {
     return;
   }
   panel.classList.remove("dragging");
+  cancelPendingDismiss();
   panel.style.transform = "translateY(100%)";
-  const onEnd = (e) => {
+  pendingDismissEnd = (e) => {
     if (e.propertyName !== "transform") return;
-    panel.removeEventListener("transitionend", onEnd);
+    cancelPendingDismiss();
     panel.hidden = true;
     panel.style.transform = "";
   };
-  panel.addEventListener("transitionend", onEnd);
+  panel.addEventListener("transitionend", pendingDismissEnd);
   if (lastLocation) {
     dismissed = true;
     showPeek(lastLocation);
@@ -43,6 +51,7 @@ function dismissPanel() {
 }
 
 function restorePanel() {
+  cancelPendingDismiss();
   dismissed = false;
   panelPeek.style.transform = "";
   panelPeek.classList.remove("dragging");
@@ -110,6 +119,14 @@ function endPeekDrag(commit) {
 }
 panelPeek.addEventListener("pointerup", () => endPeekDrag(true));
 panelPeek.addEventListener("pointercancel", () => endPeekDrag(false));
+// Pointer events handle mouse/touch; this covers keyboard activation
+// (Enter/Space) on the peek <button> for screen-reader / switch users.
+panelPeek.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    restorePanel();
+  }
+});
 
 // ---- timezone lookup (lazy-loaded; falls back to longitude-based estimate) ----
 let tzLookupPromise = null;
@@ -207,11 +224,12 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
   const times = getTimesForLocation(lat, lon, date);
   lastLocation = { lat, lon, name, date, currentPrayer: times.currentPrayer };
 
-  if (dismissed) {
+  if (dismissed && isMobile()) {
     showPeek(lastLocation);
     return;
   }
 
+  cancelPendingDismiss();
   panelPeek.hidden = true;
   panel.hidden = false;
   panel.style.transform = "";
