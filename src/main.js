@@ -327,6 +327,7 @@ function initToggles() {
   const togglePrayer = document.getElementById("togglePrayer");
   togglePrayer.addEventListener("change", () => {
     earthMaterial.uniforms.prayerEnabled.value = togglePrayer.checked ? 1.0 : 0.0;
+    markDirty();
   });
 
   // per-prayer color toggles
@@ -336,6 +337,7 @@ function initToggles() {
     if (!uniName) return;
     cb.addEventListener("change", () => {
       earthMaterial.uniforms[uniName].value = cb.checked ? 1.0 : 0.0;
+      markDirty();
     });
   });
 
