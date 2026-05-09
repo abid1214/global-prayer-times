@@ -111,6 +111,8 @@ let earthMaterial;
 let earthMesh;
 let pinMesh = null;
 let qiblaLine = null;
+let sunGroup = null;
+const SUN_DISTANCE = 60;
 
 (async function init() {
   const dayTex = await loadTex(DAY_TEXTURE);
@@ -156,6 +158,11 @@ let qiblaLine = null;
   meccaPin.position.set(m[0] * 1.006, m[1] * 1.006, m[2] * 1.006);
   earthGroup.add(meccaPin);
 
+  // Distant sun, lives in the world frame so it doesn't rotate with the
+  // earth group; position is updated each tick from sunDir.
+  sunGroup = makeSun();
+  scene.add(sunGroup);
+
   initToggles();
   initScrubber();
   start();
@@ -190,6 +197,45 @@ function makeMeccaPin() {
   glow.renderOrder = 3;
   mesh.add(glow);
   return mesh;
+}
+
+function makeSun() {
+  const group = new THREE.Group();
+  // Solid disc — bright pale yellow
+  const disc = new THREE.Mesh(
+    new THREE.SphereGeometry(4.5, 32, 24),
+    new THREE.MeshBasicMaterial({ color: 0xfff5cc })
+  );
+  group.add(disc);
+  // Additive Fresnel corona — extends past the disc as a soft glow
+  const corona = new THREE.Mesh(
+    new THREE.SphereGeometry(13, 48, 32),
+    new THREE.ShaderMaterial({
+      vertexShader: `
+        varying vec3 vNormal;
+        varying vec3 vViewDir;
+        void main() {
+          vec4 worldPos = modelMatrix * vec4(position, 1.0);
+          vNormal = normalize(normalMatrix * normal);
+          vViewDir = normalize(cameraPosition - worldPos.xyz);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vNormal;
+        varying vec3 vViewDir;
+        void main() {
+          float intensity = pow(max(dot(vNormal, vViewDir), 0.0), 1.4);
+          gl_FragColor = vec4(1.0, 0.92, 0.55, 1.0) * intensity * 0.85;
+        }
+      `,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      depthWrite: false,
+    })
+  );
+  group.add(corona);
+  return group;
 }
 
 function setPin(latRad, lonRad) {
@@ -253,6 +299,13 @@ function updateSunUniforms(date) {
   const { sunDir, declination } = sunPosition(date);
   earthMaterial.uniforms.sunDir.value.set(sunDir[0], sunDir[1], sunDir[2]);
   earthMaterial.uniforms.decl.value = declination;
+  if (sunGroup) {
+    sunGroup.position.set(
+      sunDir[0] * SUN_DISTANCE,
+      sunDir[1] * SUN_DISTANCE,
+      sunDir[2] * SUN_DISTANCE
+    );
+  }
 }
 
 const clockEl = document.getElementById("clock");
