@@ -85,7 +85,15 @@ const FRAG = /* glsl */ `
     // day's Fajr. We approximate shar'ī midnight as the moment morningness
     // flips from 0 to 1 (solar midnight); after that point — i.e., on the
     // morning side of the planet — only Fajr is in its dedicated waqt.
-    vec3 morningColor = cFajr;
+    //
+    // morningColor stays as mix(cIsha → cFajr) by altitude so that, right
+    // at the solar-midnight seam where morningness ∈ (0,1), the blend with
+    // the afternoon side stays consistent (the afternoon side at deep
+    // night is cIsha, so the seam interpolates cIsha→cIsha without a
+    // spurious Fajr tint). morningCoverage drops to 0 outside the Fajr
+    // altitude window, so we never actually paint Isha on the morning
+    // side — only Fajr inside its window.
+    vec3 morningColor = mix(cIsha, cFajr, wFajr);
     float morningCoverage = wFajr * (1.0 - wHor) * enFajr;
 
     // ---- afternoon branch ----
