@@ -314,6 +314,31 @@ html, body {
 }
 #infoModal a:hover { text-decoration: underline; }
 
+#infoModal .evidence {
+  margin-top: 8px;
+  padding: 4px 0 4px 12px;
+  border-left: 2px solid rgba(106, 168, 255, 0.35);
+}
+#infoModal .evidence p {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+#infoModal .evidence [lang="ar"] {
+  display: block;
+  font-family: "SBL Bibliit", "Geeza Pro", "Noto Naskh Arabic", "Amiri", serif;
+  font-size: 16px;
+  line-height: 1.9;
+  color: var(--fg);
+  margin-bottom: 4px;
+}
+#infoModal .evidence cite {
+  display: inline;
+  font-style: normal;
+  color: var(--accent);
+}
+
 #infoClose {
   position: absolute;
   top: 8px;
@@ -451,3 +476,202 @@ html, body {
 #searchResults .result:first-child { border-top: 0; }
 #searchResults .result:hover { background: rgba(255,255,255,0.05); }
 #searchResults .result .sub { font-size: 11px; color: var(--muted); }
+
+/* ---------- Mobile / responsive ---------- */
+
+#legendToggle { display: none; }
+#panelHandle { display: none; }
+#panelPeek { display: none; }
+
+@media (max-width: 768px) {
+  #topbar {
+    padding: 10px 14px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    padding-left: calc(14px + env(safe-area-inset-left, 0px));
+    padding-right: calc(14px + env(safe-area-inset-right, 0px));
+    justify-content: flex-end;
+  }
+  #topbar .title { display: none; }
+
+  #hud {
+    width: calc(100vw - 32px);
+    max-width: 420px;
+    left: calc(16px + env(safe-area-inset-left, 0px));
+    top: calc(46px + env(safe-area-inset-top, 0px));
+    transform: none;
+  }
+  #searchResults { max-height: 50vh; }
+
+  #legend {
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    top: calc(98px + env(safe-area-inset-top, 0px));
+    bottom: auto;
+    width: auto;
+    max-width: 320px;
+  }
+  #legend h3 { gap: 6px; }
+  #legendToggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  #legend:not(.expanded) > ul,
+  #legend:not(.expanded) > .toggles,
+  #legend:not(.expanded) > .hint { display: none; }
+  #legend.expanded #legendToggle { color: var(--accent); border-color: var(--accent); }
+
+  #scrubber {
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    transform: none;
+    width: auto;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  #panel {
+    top: auto;
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 65vh;
+    overflow-y: auto;
+    border-radius: 14px 14px 0 0;
+    padding: 14px 18px calc(18px + env(safe-area-inset-bottom, 0px));
+    border-bottom: 0;
+    transition: transform 0.25s ease;
+    will-change: transform;
+  }
+  #panel.dragging { transition: none; }
+  #panelHandle {
+    display: block;
+    position: sticky;
+    top: 0;
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--muted);
+    opacity: 0.45;
+    margin: -4px auto 8px;
+    touch-action: none;
+    cursor: grab;
+  }
+  #panelHandle:active { cursor: grabbing; }
+
+  #panelPeek {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--panel);
+    backdrop-filter: blur(10px);
+    border: 0;
+    border-top: 1px solid var(--border);
+    color: var(--fg);
+    padding: 14px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    z-index: 5;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    touch-action: none;
+    transition: transform 0.25s ease;
+    will-change: transform;
+  }
+  #panelPeek[hidden] { display: none; }
+  #panelPeek.dragging { transition: none; }
+  #panelPeek .peekHandle {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--muted);
+    opacity: 0.45;
+  }
+  #panelPeek .peekName {
+    flex: 1;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #panelPeek .peekCur {
+    color: var(--muted);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  body:has(#panel:not([hidden])) #scrubber { display: none; }
+  body:has(#panelPeek:not([hidden])) #scrubber {
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+  }
+
+  #panelClose {
+    width: 36px;
+    height: 36px;
+    top: 8px;
+    right: 10px;
+    font-size: 26px;
+  }
+
+  #infoModal {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    padding: 18px 20px 22px;
+  }
+  #infoClose { width: 36px; height: 36px; }
+}
+
+@media (max-width: 480px) {
+  #legend { padding: 10px 12px; }
+  #panel h2 { font-size: 15px; }
+}
+
+@media (pointer: coarse) {
+  #infoBtn,
+  #panelClose,
+  #infoClose,
+  #liveBtn,
+  #legendToggle {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .prayer-toggle,
+  .toggle { padding: 8px 0; }
+  #scrub::-webkit-slider-thumb { width: 22px; height: 22px; }
+  #scrub::-moz-range-thumb { width: 22px; height: 22px; }
+
+  /* backdrop-filter forces the compositor to re-blur the canvas behind
+     every overlay on every frame the canvas redraws. That's the dominant
+     cost during a fling on iOS Safari. Turn it off on touch devices and
+     compensate with a more opaque solid background. */
+  #legend,
+  #panel,
+  #scrubber,
+  #search,
+  #searchResults,
+  #infoModal,
+  #panelPeek {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(12, 16, 26, 0.95);
+  }
+  #infoOverlay { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}

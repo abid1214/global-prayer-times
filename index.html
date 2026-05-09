@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#05070d" />
   <title>Global Prayer Times</title>
   <link rel="stylesheet" href="./styles.css" />
   <script type="importmap">
@@ -25,7 +29,10 @@
     </header>
 
     <aside id="legend">
-      <h3>Prayer windows <button id="infoBtn" aria-label="How it works">i</button></h3>
+      <h3>Prayer windows
+        <button id="legendToggle" aria-label="Toggle legend" aria-expanded="true">☰</button>
+        <button id="infoBtn" aria-label="How it works">i</button>
+      </h3>
       <ul>
         <li><label class="prayer-toggle" data-prayer="fajr"><input type="checkbox" checked /><span class="swatch" style="background:#7a52c4"></span>Fajr</label></li>
         <li><label class="prayer-toggle" data-prayer="dhuhr"><input type="checkbox" checked /><span class="swatch" style="background:#F2B33D"></span>Dhuhr</label></li>
@@ -35,12 +42,12 @@
       </ul>
       <div class="toggles">
         <label class="toggle"><input type="checkbox" id="togglePrayer" checked /><span>Prayer shading</span></label>
-        <label class="toggle"><input type="checkbox" id="toggleDayNight" checked /><span>Day / night</span></label>
       </div>
       <p class="hint">Click anywhere on the globe to see today's prayer times for that location.</p>
     </aside>
 
     <aside id="panel" hidden>
+      <div id="panelHandle" aria-hidden="true"></div>
       <button id="panelClose" aria-label="Close">&times;</button>
       <h2 id="panelLocation">&mdash;</h2>
       <div id="panelCoords" class="muted"></div>
@@ -51,6 +58,12 @@
       </table>
       <div id="panelQibla" class="muted"></div>
     </aside>
+
+    <button id="panelPeek" hidden>
+      <div class="peekHandle" aria-hidden="true"></div>
+      <span class="peekName">&mdash;</span>
+      <span class="peekCur"></span>
+    </button>
 
     <div id="hud">
       <input id="search" type="text" placeholder="Search a city…" autocomplete="off" />
@@ -70,26 +83,57 @@
         <h2>How the globe is shaded</h2>
 
         <h3>Shia (Ja'fari) Prayer Windows</h3>
-        <p>Each pixel on the globe is colored by computing the <strong>sun's altitude angle</strong> at that location in real time, then classifying which of the five prayer windows applies. The Ja'fari (Shia Ithna-Ashari) method uses the following astronomical definitions:</p>
+        <p>Each pixel on the globe is colored by computing the <strong>sun's altitude angle</strong> at that location in real time, then classifying which of the five prayer windows applies. The Ja'fari (Shia Ithn&#x101;-Ashar&#x12b;) method uses the following astronomical definitions, each rooted in Qur'&#x101;nic verses and traditions narrated from the Imams (peace be upon them):</p>
         <dl>
           <dt>Fajr</dt>
-          <dd>Begins when the sun is <strong>16&deg; below the horizon</strong> (on the rising / morning side). This marks the start of astronomical dawn. Fajr lasts until sunrise (sun crosses 0&deg;).</dd>
+          <dd>
+            Begins when the sun is <strong>16&deg; below the horizon</strong> on the rising side &mdash; the start of astronomical dawn (<em>al-fajr al-&#x1e63;&#x101;diq</em>, "true dawn"), distinguished from the brief vertical glow of <em>al-fajr al-k&#x101;dhib</em> ("false dawn"). Fajr lasts until sunrise.
+            <div class="evidence">
+              <p><span lang="ar" dir="rtl">حَتَّىٰ يَتَبَيَّنَ لَكُمُ الْخَيْطُ الْأَبْيَضُ مِنَ الْخَيْطِ الْأَسْوَدِ مِنَ الْفَجْرِ</span>"&hellip;until the white thread of dawn becomes distinguishable to you from the black thread of night&hellip;" <cite>&mdash; Qur'&#x101;n 2:187</cite></p>
+              <p><span lang="ar" dir="rtl">وَقْتُ الْفَجْرِ حِينَ يَنْشَقُّ الْفَجْرُ إِلَىٰ أَنْ تَطْلُعَ الشَّمْسُ</span>"The time of Fajr is from when the dawn breaks until the sun rises." <cite>&mdash; Imam Ja'far al-&#x1e62;&#x101;diq, <em>al-K&#x101;f&#x12b;</em> III</cite></p>
+            </div>
+          </dd>
 
           <dt>Dhuhr</dt>
-          <dd>Begins at <strong>solar noon</strong> (sun crosses the observer's meridian at its highest daily altitude) and lasts until Asr.</dd>
+          <dd>
+            Begins at <strong>solar noon</strong> (<em>zaw&#x101;l</em>): the sun crosses the observer's meridian at its highest daily altitude.
+            <div class="evidence">
+              <p><span lang="ar" dir="rtl">أَقِمِ الصَّلَاةَ لِدُلُوكِ الشَّمْسِ إِلَىٰ غَسَقِ اللَّيْلِ</span>"Establish prayer at the decline of the sun until the darkness of the night." <cite>&mdash; Qur'&#x101;n 17:78</cite></p>
+              <p><span lang="ar" dir="rtl">إِذَا زَالَتِ الشَّمْسُ دَخَلَ الْوَقْتَانِ: الظُّهْرُ وَالْعَصْرُ</span>"When the sun crosses the meridian, both times enter: &#x1e92;uhr and &#x2018;A&#x1e63;r." <cite>&mdash; Imam Mu&#x1e25;ammad al-B&#x101;qir, <em>al-K&#x101;f&#x12b;</em> III &mdash; the textual basis for the Ja'fari "shared-time" ruling.</cite></p>
+            </div>
+          </dd>
 
           <dt>Asr</dt>
-          <dd>Begins when the shadow of an object equals its own length <strong>plus</strong> the shadow at noon (shadow factor&nbsp;=&nbsp;1, also used by the Shafi'i school). Mathematically: <code>alt_asr = arctan(1 / (1 + tan(|lat &minus; decl|)))</code>. Asr lasts until sunset.</dd>
+          <dd>
+            Its dedicated time begins when the shadow of an upright object equals its own length, taken from the shadow at noon (shadow factor&nbsp;=&nbsp;1, matching the Sh&#x101;fi&#x2018;&#x12b; school). Mathematically: <code>alt_asr = arctan(1 / (1 + tan(|lat &minus; decl|)))</code>. Asr lasts until sunset.
+            <div class="evidence">
+              <p><span lang="ar" dir="rtl">حَافِظُوا عَلَى الصَّلَوَاتِ وَالصَّلَاةِ الْوُسْطَىٰ</span>"Guard strictly the prayers, and the middle prayer&hellip;" &mdash; traditionally identified as &#x2018;A&#x1e63;r in Shia exegesis. <cite>&mdash; Qur'&#x101;n 2:238</cite></p>
+              <p><span lang="ar" dir="rtl">إِذَا صَارَ ظِلُّ كُلِّ شَيْءٍ مِثْلَهُ فَقَدْ دَخَلَ وَقْتُ الْعَصْرِ</span>"When the shadow of every thing has become equal to it, the time of &#x2018;A&#x1e63;r has entered." <cite>&mdash; Imam al-&#x1e62;&#x101;diq, <em>Tahdh&#x12b;b al-A&#x1e25;k&#x101;m</em> II</cite></p>
+            </div>
+          </dd>
 
           <dt>Maghrib</dt>
-          <dd>Unlike most Sunni methods which start Maghrib at sunset (0&deg;), the Ja'fari method waits until the sun is <strong>4&deg; below the horizon</strong> on the setting side. This accounts for the "redness of the eastern sky" fading. Maghrib lasts until Isha.</dd>
+          <dd>
+            Unlike Sunni methods that start Maghrib at sunset (0&deg;), the Ja'fari method waits until the sun is <strong>4&deg; below the horizon</strong> on the setting side &mdash; the moment the eastern redness (<em>al-&#x1e25;umra al-mashriqiyya</em>) has fully faded. Maghrib lasts until Isha.
+            <div class="evidence">
+              <p><span lang="ar" dir="rtl">وَأَقِمِ الصَّلَاةَ طَرَفَيِ النَّهَارِ وَزُلَفًا مِّنَ اللَّيْلِ</span>"And establish prayer at the two ends of the day and at the approach of the night." <cite>&mdash; Qur'&#x101;n 11:114</cite></p>
+              <p><span lang="ar" dir="rtl">إِذَا ذَهَبَتِ الْحُمْرَةُ مِنَ الْمَشْرِقِ فَقَدْ غَرَبَتِ الشَّمْسُ</span>"When the redness has departed from the east, then the sun has [truly] set." <cite>&mdash; Imam al-&#x1e62;&#x101;diq, <em>al-K&#x101;f&#x12b;</em> III &mdash; the explicit basis for the 4&deg; offset.</cite></p>
+            </div>
+          </dd>
 
           <dt>Isha</dt>
-          <dd>Begins when the sun is <strong>14&deg; below the horizon</strong> on the setting side. Isha extends through the night until the next day's Fajr.</dd>
+          <dd>
+            Begins when the sun is <strong>14&deg; below the horizon</strong> on the setting side &mdash; the disappearance of the western twilight (<em>shafaq</em>). Isha extends through the night until the next day's Fajr; midnight (the midpoint between sunset and dawn) is the end of its preferred time.
+            <div class="evidence">
+              <p><span lang="ar" dir="rtl">أَقِمِ الصَّلَاةَ لِدُلُوكِ الشَّمْسِ إِلَىٰ غَسَقِ اللَّيْلِ</span>"&hellip;until the darkness of the night (<em>ghasaq al-layl</em>)." <cite>&mdash; Qur'&#x101;n 17:78; Imam al-&#x1e62;&#x101;diq glosses <em>ghasaq al-layl</em> as midnight in Tafs&#x12b;r al-Qumm&#x12b;.</cite></p>
+              <p><span lang="ar" dir="rtl">وَقْتُ الْعِشَاءِ حِينَ يَغِيبُ الشَّفَقُ إِلَىٰ نِصْفِ اللَّيْلِ</span>"The time of Isha is from when the twilight (<em>shafaq</em>) has disappeared until midnight." <cite>&mdash; Imam al-&#x1e62;&#x101;diq, <em>al-K&#x101;f&#x12b;</em> III</cite></p>
+            </div>
+          </dd>
         </dl>
 
-        <h3>Day / Night Shading</h3>
-        <p>The base globe blends between a <em>daytime</em> satellite texture (NASA Blue Marble) and a <em>nighttime</em> city-lights texture, using the sun's altitude at each pixel. The transition is gradual across the twilight zone. The warm glow at the terminator (sunrise/sunset line) simulates atmospheric scattering.</p>
+        <h3>High Latitudes (Aqrab al-Bil&#x101;d)</h3>
+        <p>Above 60&deg; N/S the standard altitude-based definitions break down: at the summer solstice the sun never falls 16&deg; below the horizon (no astronomical Fajr), and above the Arctic / Antarctic Circle it may never rise or set at all. Classical fiqh did not address these regions, so contemporary Mar&#x101;ji&#x2018; (Sistani, Khamenei, S&#x101;diq al-Sh&#x012b;r&#x101;z&#x012b;) give the dominant ruling as <strong>Aqrab al-Bil&#x101;d</strong> &mdash; "the nearest locality" &mdash; meaning to follow the schedule of the closest latitude where the regular calculation works.</p>
+        <p>Aqrab al-Bil&#x101;d gives one location one schedule, not a spatial coloring &mdash; projecting it per-pixel onto a polar cap produces a kaleidoscope of every prayer state happening at 60&deg; latitude around the world, which isn't visually meaningful. So above 60&deg; the prayer overlay fades out and the polar caps just show geography. If you tap a high-latitude location, the side panel still shows the schedule projected from 60&deg; on the same longitude (with a "projected from 60&deg;" note), since that's where Aqrab al-Bil&#x101;d is genuinely useful. Other rulings exist (middle-of-night, sevenths, angle-based) and produce different schedules.</p>
 
         <h3>Calculation Details</h3>
         <p>The sun's position (declination + subsolar longitude) is computed from a simplified NOAA solar algorithm, accurate to ~0.01&deg;. Prayer windows are classified per pixel in a GLSL fragment shader, so the visualization runs at full frame rate with smooth, continuous bands — not a discretized grid.</p>

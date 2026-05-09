@@ -13,14 +13,11 @@ const FRAG = /* glsl */ `
   precision highp float;
 
   uniform sampler2D dayMap;
-  uniform sampler2D nightMap;
   uniform vec3 sunDir;
   uniform float decl;
   uniform float prayerOpacity;
   uniform float dayBoost;
-  uniform float nightBoost;
   uniform float prayerEnabled;
-  uniform float dayNightEnabled;
 
   // per-prayer visibility toggles (0 or 1)
   uniform float enFajr;
@@ -54,14 +51,18 @@ const FRAG = /* glsl */ `
     vec3 n = normalize(vNormalLocal);
     vec3 sd = normalize(sunDir);
 
+    float lat = asin(clamp(n.y, -1.0, 1.0));
+
     float sinAlt = clamp(dot(sd, n), -1.0, 1.0);
     float alt = asin(sinAlt);
 
-    vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), n));
+    // East tangent at the observer. Deliberately NOT normalized:
+    // cross((0,1,0), n) has length cos(lat), which goes to 0 at the
+    // geographic poles. Skipping normalize() lets the morning / afternoon
+    // split naturally fade to a 50/50 mix at the pole instead of amplifying
+    // floating-point noise into a pinwheel.
+    vec3 east = cross(vec3(0.0, 1.0, 0.0), n);
 
-    // Asr altitude threshold — smooth abs(lat-decl) to remove the V-kink
-    // at the subsolar latitude where the derivative would otherwise jump.
-    float lat = asin(clamp(n.y, -1.0, 1.0));
     float diff = lat - decl;
     float zenithDiff = clamp(sqrt(diff * diff + 0.0005), 0.0, 1.4);
     float altAsr = atan(1.0 / (1.0 + tan(zenithDiff)));
@@ -81,7 +82,6 @@ const FRAG = /* glsl */ `
     // ---- morning branch ----
     vec3 morningColor = mix(cIsha, cFajr, wFajr);
     float morningCoverage = 1.0 - wHor;
-    // per-prayer enable: interpolate Isha-enable → Fajr-enable by blend weight
     float morningEnable = mix(enIsha, enFajr, wFajr);
     morningCoverage *= morningEnable;
 
@@ -94,61 +94,39 @@ const FRAG = /* glsl */ `
     float twilEn    = mix(nightEn, enAsr, wMag);
     float dayEn     = mix(enAsr, enDhuhr, wAsr);
     float afternoonEnable = mix(twilEn, dayEn, wHor);
-    float afternoonCoverage = afternoonEnable;
 
     vec3 prayerColor = mix(afternoonColor, morningColor, morningness);
-    float coverage = mix(afternoonCoverage, morningCoverage, morningness);
+    float coverage = mix(afternoonEnable, morningCoverage, morningness);
 
-    // ---- base earth coloring ----
-    vec3 rawDay = sampleEquirect(dayMap, n).rgb;
-    vec3 nightCol = pow(sampleEquirect(nightMap, n).rgb, vec3(0.75)) * nightBoost;
+    // Uniformly-lit base earth (no day/night terminator).
+    vec3 baseCol = sampleEquirect(dayMap, n).rgb * dayBoost + 0.14;
 
-    // Brighten the day texture so the sunlit side reads clearly.
-    // When day/night is OFF, push even harder + lift shadows for uniform look.
-    vec3 dayOn  = rawDay * dayBoost + 0.05;
-    vec3 dayOff = rawDay * (dayBoost * 1.5) + 0.14;
-    vec3 dayCol = mix(dayOff, dayOn, dayNightEnabled);
+    // Above ~60° N/S the altitude-based Ja'fari definitions become unreliable
+    // and Aqrab al-Bilad (the dominant Shia high-latitude ruling) projects
+    // the schedule onto a single nearest-locality point — which doesn't have
+    // a clean spatial coloring. We fade the prayer overlay out so the
+    // polar caps just show geography. The side panel still shows projected
+    // times for any polar click.
+    const float LAT_THRESH = 1.047; // 60° in radians
+    float poleFade = 1.0 - smoothstep(LAT_THRESH - 0.04, LAT_THRESH + 0.04, abs(lat));
 
-    float realDayMix = smoothstep(-0.12, 0.06, sinAlt);
-    float dayMix = mix(1.0, realDayMix, dayNightEnabled);
-    vec3 baseCol = mix(nightCol, dayCol, dayMix);
-
-    // ---- prayer overlay ----
-    float realDayK = smoothstep(-0.05, 0.10, sinAlt);
-    float strength = coverage * prayerOpacity * prayerEnabled;
-
-    // When day/night is ON, vary tint strength (light on day side, heavy on night).
-    // When OFF, use a uniform medium-high strength so prayer bands pop against
-    // the evenly-lit base.
-    float kTerminator = mix(strength * 0.65, strength * 0.45, realDayK);
-    float kFlat = strength * 0.80;
-    float k = mix(kFlat, kTerminator, dayNightEnabled);
-    vec3 tinted = mix(baseCol, prayerColor, k);
-
-    float glowTerminator = strength * 0.30 * (1.0 - realDayK);
-    float glowFlat = strength * 0.32;
-    float glow = mix(glowFlat, glowTerminator, dayNightEnabled);
-    tinted += prayerColor * glow;
-
-    float term = exp(-pow(sinAlt * 12.0, 2.0)) * dayNightEnabled;
-    tinted += vec3(1.0, 0.55, 0.25) * term * 0.18;
+    float strength = coverage * prayerOpacity * prayerEnabled * poleFade;
+    vec3 tinted = mix(baseCol, prayerColor, strength * 0.92);
+    tinted += prayerColor * strength * 0.40;
 
     gl_FragColor = vec4(clamp(tinted, 0.0, 1.0), 1.0);
   }
 `;
 
-export function createEarthMaterial({ dayMap, nightMap }) {
+export function createEarthMaterial({ dayMap }) {
   return new THREE.ShaderMaterial({
     uniforms: {
       dayMap: { value: dayMap },
-      nightMap: { value: nightMap },
       sunDir: { value: new THREE.Vector3(1, 0, 0) },
       decl: { value: 0 },
-      prayerOpacity: { value: 0.7 },
-      dayBoost: { value: 1.8 },
-      nightBoost: { value: 1.6 },
+      prayerOpacity: { value: 0.85 },
+      dayBoost: { value: 2.7 },
       prayerEnabled: { value: 1.0 },
-      dayNightEnabled: { value: 1.0 },
       enFajr: { value: 1.0 },
       enDhuhr: { value: 1.0 },
       enAsr: { value: 1.0 },

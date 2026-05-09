@@ -1,5 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 
 import { sunPosition, latLonToVec3 } from "./solar.js";
 import { createEarthMaterial } from "./earthMaterial.js";
@@ -8,14 +11,22 @@ import { initSearch } from "./search.js";
 
 // Uniformly-lit NASA Blue Marble composite (no baked-in sunlight shading).
 const DAY_TEXTURE = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
-const NIGHT_TEXTURE = "https://unpkg.com/three-globe/example/img/earth-night.jpg";
 
 const MECCA_LAT = 21.4225;
 const MECCA_LON = 39.8262;
 
 const canvas = document.getElementById("globe");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const HI_DPR = Math.min(window.devicePixelRatio, 2);
+const LO_DPR = Math.min(window.devicePixelRatio, 1);
+let currentDPR = HI_DPR;
+function setDPR(dpr) {
+  if (dpr === currentDPR) return;
+  currentDPR = dpr;
+  renderer.setPixelRatio(dpr);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+}
+renderer.setPixelRatio(HI_DPR);
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
@@ -33,12 +44,13 @@ camera.lookAt(0, 0, 0);
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+controls.dampingFactor = 0.02;
 controls.rotateSpeed = 0.5;
 controls.enablePan = false;
 controls.minDistance = 1.25;
 controls.maxDistance = 8;
 controls.zoomSpeed = 0.6;
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE };
 
 // Starfield
 {
@@ -101,11 +113,8 @@ let pinMesh = null;
 let qiblaLine = null;
 
 (async function init() {
-  const [dayTex, nightTex] = await Promise.all([
-    loadTex(DAY_TEXTURE),
-    loadTex(NIGHT_TEXTURE),
-  ]);
-  earthMaterial = createEarthMaterial({ dayMap: dayTex, nightMap: nightTex });
+  const dayTex = await loadTex(DAY_TEXTURE);
+  earthMaterial = createEarthMaterial({ dayMap: dayTex });
   earthMesh = new THREE.Mesh(earthGeo, earthMaterial);
   earthGroup.add(earthMesh);
 
@@ -142,6 +151,11 @@ let qiblaLine = null;
   pinMesh.visible = false;
   earthGroup.add(pinMesh);
 
+  const meccaPin = makeMeccaPin();
+  const m = latLonToVec3((MECCA_LAT * Math.PI) / 180, (MECCA_LON * Math.PI) / 180);
+  meccaPin.position.set(m[0] * 1.006, m[1] * 1.006, m[2] * 1.006);
+  earthGroup.add(meccaPin);
+
   initToggles();
   initScrubber();
   start();
@@ -161,11 +175,29 @@ function makePin() {
   return mesh;
 }
 
+function makeMeccaPin() {
+  const g = new THREE.SphereGeometry(0.014, 18, 14);
+  const m = new THREE.MeshBasicMaterial({ color: 0xffe066 });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.renderOrder = 3;
+  const glowGeo = new THREE.SphereGeometry(0.028, 18, 14);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0xffd84d,
+    transparent: true,
+    opacity: 0.55,
+  });
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  glow.renderOrder = 3;
+  mesh.add(glow);
+  return mesh;
+}
+
 function setPin(latRad, lonRad) {
   if (!pinMesh) return;
   const v = latLonToVec3(latRad, lonRad);
   pinMesh.position.set(v[0] * 1.005, v[1] * 1.005, v[2] * 1.005);
   pinMesh.visible = true;
+  markDirty();
 }
 
 function setQiblaFrom(latDeg, lonDeg) {
@@ -181,13 +213,12 @@ function setQiblaFrom(latDeg, lonDeg) {
   const A = new THREE.Vector3(...latLonToVec3(aRad[0], aRad[1]));
   const B = new THREE.Vector3(...latLonToVec3(bRad[0], bRad[1]));
 
-  // If clicked location IS Mecca (or extremely close), skip drawing.
   if (A.distanceTo(B) < 0.001) return;
 
   const omega = Math.acos(Math.max(-1, Math.min(1, A.dot(B))));
   const sinOmega = Math.sin(omega);
   const N = 96;
-  const points = [];
+  const positions = [];
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const a = Math.sin((1 - t) * omega) / sinOmega;
@@ -196,17 +227,24 @@ function setQiblaFrom(latDeg, lonDeg) {
       .copy(A).multiplyScalar(a)
       .addScaledVector(B, b)
       .normalize()
-      .multiplyScalar(1.012);
-    points.push(v);
+      .multiplyScalar(1.018);
+    positions.push(v.x, v.y, v.z);
   }
-  const geom = new THREE.BufferGeometry().setFromPoints(points);
-  const mat = new THREE.LineBasicMaterial({
-    color: 0xffd86b,
+  const geom = new LineGeometry();
+  geom.setPositions(positions);
+  const mat = new LineMaterial({
+    color: 0xffe066,
+    linewidth: 3.5,
     transparent: true,
-    opacity: 0.85,
+    opacity: 1.0,
+    depthTest: false,
+    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
   });
-  qiblaLine = new THREE.Line(geom, mat);
+  qiblaLine = new Line2(geom, mat);
+  qiblaLine.renderOrder = 2;
+  qiblaLine.computeLineDistances();
   earthGroup.add(qiblaLine);
+  markDirty();
 }
 
 // ---- ticking ----
@@ -254,6 +292,10 @@ function initScrubber() {
     scrubLive = scrubOffsetMs === 0;
     label.textContent = fmtOffset(scrubOffsetMs);
     live.classList.toggle("active", scrubLive);
+    const now = effectiveNow();
+    updateSunUniforms(now);
+    updateClock(now, scrubLive);
+    markDirty();
   });
 
   live.addEventListener("click", () => {
@@ -262,6 +304,10 @@ function initScrubber() {
     scrubLive = true;
     label.textContent = "now";
     live.classList.add("active");
+    const now = effectiveNow();
+    updateSunUniforms(now);
+    updateClock(now, scrubLive);
+    markDirty();
   });
 
   label.textContent = "now";
@@ -279,12 +325,8 @@ const PRAYER_UNIFORM_MAP = {
 
 function initToggles() {
   const togglePrayer = document.getElementById("togglePrayer");
-  const toggleDayNight = document.getElementById("toggleDayNight");
   togglePrayer.addEventListener("change", () => {
     earthMaterial.uniforms.prayerEnabled.value = togglePrayer.checked ? 1.0 : 0.0;
-  });
-  toggleDayNight.addEventListener("change", () => {
-    earthMaterial.uniforms.dayNightEnabled.value = toggleDayNight.checked ? 1.0 : 0.0;
   });
 
   // per-prayer color toggles
@@ -295,6 +337,14 @@ function initToggles() {
     cb.addEventListener("change", () => {
       earthMaterial.uniforms[uniName].value = cb.checked ? 1.0 : 0.0;
     });
+  });
+
+  // collapsible legend (mobile)
+  const legend = document.getElementById("legend");
+  const legendToggle = document.getElementById("legendToggle");
+  legendToggle?.addEventListener("click", () => {
+    const expanded = legend.classList.toggle("expanded");
+    legendToggle.setAttribute("aria-expanded", String(expanded));
   });
 
   // info modal
@@ -310,17 +360,34 @@ function initToggles() {
   });
 }
 
+let dirty = true;
+function markDirty() { dirty = true; }
+controls.addEventListener("change", markDirty);
+
 function start() {
   let lastUniformUpdate = 0;
+  let lastMotion = -Infinity;
   function tick(t) {
-    const now = effectiveNow();
-    if (t - lastUniformUpdate > 100) {
+    if (t - lastUniformUpdate > 500) {
+      const now = effectiveNow();
       updateSunUniforms(now);
       updateClock(now, scrubLive);
       lastUniformUpdate = t;
+      dirty = true;
     }
-    controls.update();
-    renderer.render(scene, camera);
+    const moving = controls.update();
+    if (moving) {
+      lastMotion = t;
+      if (currentDPR !== LO_DPR) setDPR(LO_DPR);
+      dirty = true;
+    } else if (currentDPR !== HI_DPR && t - lastMotion > 80) {
+      setDPR(HI_DPR);
+      dirty = true;
+    }
+    if (dirty) {
+      renderer.render(scene, camera);
+      dirty = false;
+    }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -330,6 +397,10 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight, false);
+  if (qiblaLine) {
+    qiblaLine.material.resolution.set(window.innerWidth, window.innerHeight);
+  }
+  markDirty();
 });
 
 // ---- click → lat/lon ----
@@ -387,6 +458,7 @@ function flyTo(latRad, lonRad) {
     const eased = 1 - Math.pow(1 - k, 3);
     camera.position.lerpVectors(startPos, endPos, eased);
     camera.lookAt(0, 0, 0);
+    markDirty();
     if (k < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);

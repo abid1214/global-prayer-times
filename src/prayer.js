@@ -21,8 +21,18 @@ const PRAYER_META = [
   { key: "isha",    label: "Isha",    color: "#283F6E" },
 ];
 
+// Aqrab al-Bilad threshold. Above this latitude the Ja'fari altitude-based
+// definitions can fail (sun never reaches -16° at summer solstice above ~51°,
+// never sets above the Arctic Circle). The dominant Shia ruling is to adopt
+// the schedule of the nearest latitude where the calculation works; we
+// approximate that by clamping the effective latitude. The same threshold is
+// hard-coded in the shader.
+const LAT_THRESH_DEG = 60;
+
 export function getTimesForLocation(latDeg, lonDeg, date = new Date()) {
-  const coords = new adhan.Coordinates(latDeg, lonDeg);
+  const projected = Math.abs(latDeg) > LAT_THRESH_DEG;
+  const effLatDeg = projected ? Math.sign(latDeg) * LAT_THRESH_DEG : latDeg;
+  const coords = new adhan.Coordinates(effLatDeg, lonDeg);
   const params = jafariParams();
   const times = new adhan.PrayerTimes(coords, date, params);
 
@@ -31,7 +41,7 @@ export function getTimesForLocation(latDeg, lonDeg, date = new Date()) {
   // just passed because its time-ordered comparison breaks when
   // Isha and the next day's Fajr are only minutes apart. Computing from
   // current sun altitude keeps the panel and the globe coloring in sync.
-  const latRad = (latDeg * Math.PI) / 180;
+  const latRad = (effLatDeg * Math.PI) / 180;
   const lonRad = (lonDeg * Math.PI) / 180;
 
   return {
@@ -42,6 +52,7 @@ export function getTimesForLocation(latDeg, lonDeg, date = new Date()) {
     maghrib: times.maghrib,
     isha: times.isha,
     currentPrayer: classifyPrayer(latRad, lonRad, date),
+    aqrab: projected ? { projectedFromLat: effLatDeg } : null,
     raw: times,
   };
 }
