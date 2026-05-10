@@ -63,6 +63,11 @@ export class GlobeControls extends THREE.EventDispatcher {
     this._twoFingerLastValid = false;
     this._inertia = { pitch: 0, yaw: 0, roll: 0, zoom: 1 };
     this._dragging = false;
+    // Most recent input time — used on release to decide if the user was
+    // still actively moving (fling) or had paused / slowed (no inertia).
+    // Without this, careful slow drags + release would keep coasting for
+    // ~1 s and the globe would visibly slip past the user's intended pose.
+    this._lastMoveTime = 0;
     // True when input or inertia has updated _quat/_distance since the last
     // update() tick — drives both the 'change' dispatch and the return value
     // (which is what main.js uses to gate adaptive pixel-ratio).
@@ -110,7 +115,14 @@ export class GlobeControls extends THREE.EventDispatcher {
     // NaN setFromUnitVectors on a zero-length vector.
     if (rawDistance < 1e-6) return;
     this._tmpVec3.subVectors(this.camera.position, this.target).normalize();
+    // setFromUnitVectors picks the shortest-arc rotation, which discards
+    // any roll the camera previously had. That's fine for "go-to" jumps,
+    // but we then need to write the unrolled transform back to the camera
+    // immediately — otherwise camera.up still carries the old roll and the
+    // next user gesture (which goes through _writeCameraTransform) will
+    // visibly snap the camera to the unrolled state.
     this._quat.setFromUnitVectors(_FORWARD, this._tmpVec3);
+    this._writeCameraTransform();
   }
 
   // ---- input handlers ----
@@ -144,6 +156,7 @@ export class GlobeControls extends THREE.EventDispatcher {
     // the Map already holds) instead of allocating a new {x,y} object.
     prev.x = e.clientX;
     prev.y = e.clientY;
+    this._lastMoveTime = e.timeStamp;
 
     if (this._pointers.size === 1) {
       const dYaw = -dx * this.rotateSpeed;
@@ -191,6 +204,29 @@ export class GlobeControls extends THREE.EventDispatcher {
     this._pointers.delete(e.pointerId);
     try { this.dom.releasePointerCapture(e.pointerId); } catch (_) {}
     if (this._pointers.size === 0) {
+      // Decide whether to coast (fling) or snap (deliberate placement).
+      // Two cases kill inertia:
+      //   • The user paused before lifting their finger (last pointermove
+      //     was more than ~50 ms ago) — they were positioning, not flinging.
+      //   • The most recent rotational velocity is below a perceptible
+      //     threshold (~0.3°/frame). A slow steady drag should stop
+      //     immediately on release rather than slipping past the user's
+      //     intended pose.
+      const since = e.timeStamp - this._lastMoveTime;
+      const rotVel = Math.hypot(this._inertia.pitch, this._inertia.yaw, this._inertia.roll);
+      const FLING_TIMEOUT_MS = 50;
+      const FLING_MIN_VEL = 0.005; // rad/frame ≈ 0.29°
+      if (since > FLING_TIMEOUT_MS || rotVel < FLING_MIN_VEL) {
+        this._inertia.pitch = 0;
+        this._inertia.yaw = 0;
+        this._inertia.roll = 0;
+      }
+      // Pinch inertia gets the same treatment, just measured against the
+      // multiplicative scale (1.0 = no zoom).
+      const FLING_MIN_ZOOM = 0.005; // ~0.5%/frame
+      if (since > FLING_TIMEOUT_MS || Math.abs(this._inertia.zoom - 1) < FLING_MIN_ZOOM) {
+        this._inertia.zoom = 1;
+      }
       this._dragging = false;
       this._twoFingerLastValid = false;
       this.dispatchEvent({ type: "end" });
