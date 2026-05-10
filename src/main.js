@@ -562,8 +562,10 @@ function flyTo(latRad, lonRad) {
   // controls.minDistance and triggering jumpy syncFromCamera clamps
   // mid-flight.
   const v = latLonToVec3(latRad, lonRad);
-  const dist = camera.position.length();
-  const startDir = camera.position.clone().normalize();
+  const target = controls.target; // single source of truth for orbit center
+  const offset = new THREE.Vector3().subVectors(camera.position, target);
+  const dist = offset.length();
+  const startDir = offset.clone().normalize();
   const endDir = new THREE.Vector3(v[0], v[1], v[2]);
   const totalRot = new THREE.Quaternion().setFromUnitVectors(startDir, endDir);
   const startTime = performance.now();
@@ -576,11 +578,10 @@ function flyTo(latRad, lonRad) {
     const eased = 1 - Math.pow(1 - k, 3);
     partial.copy(identity).slerp(totalRot, eased);
     dirAtT.copy(startDir).applyQuaternion(partial);
-    camera.position.copy(dirAtT).multiplyScalar(dist);
-    camera.lookAt(0, 0, 0);
-    // Keep GlobeControls' internal quat/distance in lockstep with the
-    // animated camera, otherwise the next user gesture would apply deltas
-    // to stale state and snap the view back to the pre-fly orbit.
+    camera.position.copy(target).addScaledVector(dirAtT, dist);
+    // syncFromCamera() rewrites the camera transform (including its own
+    // camera.lookAt(target)) so any lookAt here would be immediately
+    // overwritten. Skip it.
     controls.syncFromCamera();
     markDirty();
     if (k < 1) requestAnimationFrame(step);
