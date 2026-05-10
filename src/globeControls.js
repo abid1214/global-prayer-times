@@ -33,9 +33,14 @@ export class GlobeControls extends THREE.EventDispatcher {
     this.target = new THREE.Vector3(0, 0, 0);
     this.minDistance = 1.25;
     this.maxDistance = 8;
-    this.rotateSpeed = 0.005;
+    // rotateSpeed is now a multiplier on a zoom-aware angle-per-pixel
+    // (computed in _anglePerPx), not raw rad/px. 1.5 makes a full-screen
+    // vertical drag at default zoom rotate ~one FOV, and gracefully slows
+    // down as the camera approaches the globe surface.
+    this.rotateSpeed = 1.5;
     this.zoomSpeed = 0.6;
     this.dampingFactor = 0.04;
+    this.globeRadius = 1; // used to scale rotation against camera distance
     this.enabled = true;
 
     this._distance = camera.position.distanceTo(this.target);
@@ -161,8 +166,9 @@ export class GlobeControls extends THREE.EventDispatcher {
     this._lastMoveTime = e.timeStamp;
 
     if (this._pointers.size === 1) {
-      const dYaw = -dx * this.rotateSpeed;
-      const dPitch = -dy * this.rotateSpeed;
+      const anglePerPx = this._anglePerPx();
+      const dYaw = -dx * anglePerPx * this.rotateSpeed;
+      const dPitch = -dy * anglePerPx * this.rotateSpeed;
       this._applyEuler(dPitch, dYaw, 0);
       this._inertia.pitch = dPitch;
       this._inertia.yaw = dYaw;
@@ -273,6 +279,23 @@ export class GlobeControls extends THREE.EventDispatcher {
     this._tmpQuat.setFromEuler(this._tmpEuler);
     this._quat.multiply(this._tmpQuat);
     this._quat.normalize();
+  }
+
+  // Pixels of drag → radians of camera orbit, scaled so a point on the
+  // globe surface stays roughly under the user's finger across zooms.
+  //
+  //   θ = (drag_px / clientHeight) · vFOV · (distance − globeRadius)
+  //
+  // The (distance − globeRadius) factor is what makes the drag feel
+  // consistent: when the camera is close to the surface the same screen
+  // gesture should produce a much smaller orbit, otherwise the globe flies
+  // past your finger. Falls back to a small positive minimum so we don't
+  // freeze rotation if the camera somehow gets right up against the globe.
+  _anglePerPx() {
+    const fov = (this.camera.fov || 45) * (Math.PI / 180);
+    const h = this.dom.clientHeight || 800;
+    const distFactor = Math.max(0.05, this._distance - this.globeRadius);
+    return (fov / h) * distFactor;
   }
 
   _applyZoom(scale) {

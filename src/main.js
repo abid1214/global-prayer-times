@@ -44,7 +44,6 @@ camera.lookAt(0, 0, 0);
 
 const controls = new GlobeControls(camera, canvas);
 controls.dampingFactor = 0.02;
-controls.rotateSpeed = 0.005;
 controls.minDistance = 1.25;
 controls.maxDistance = 8;
 controls.zoomSpeed = 0.6;
