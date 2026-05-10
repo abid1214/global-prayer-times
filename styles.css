@@ -311,6 +311,11 @@ html, body {
   color: var(--accent);
 }
 #infoModal p { margin: 6px 0; }
+#infoModal ul.how-to {
+  margin: 4px 0 6px;
+  padding-left: 20px;
+}
+#infoModal ul.how-to li { margin: 6px 0; }
 #infoModal dl { margin: 0; }
 #infoModal dt {
   font-weight: 600;
