@@ -1,5 +1,10 @@
 import * as THREE from "three";
 
+// Module-scope constants reused as input to THREE math methods that read
+// from but don't mutate them. Avoids allocating per call.
+const _FORWARD = new THREE.Vector3(0, 0, 1);
+const _UP = new THREE.Vector3(0, 1, 0);
+
 // Quaternion-based orbit controls. Replaces three.js OrbitControls so that
 // (a) a vertical drag can flick past the poles (no spherical clamp on the
 // camera) and (b) a two-finger twist rotates the view as a true roll. The
@@ -38,8 +43,10 @@ export class GlobeControls extends THREE.EventDispatcher {
     this._quat = new THREE.Quaternion();
     // Initial quaternion: rotate the default offset (0,0,d) onto the current
     // camera direction. Subsequent input rotations are layered on top.
-    const dir = new THREE.Vector3().subVectors(camera.position, this.target).normalize();
-    this._quat.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+    {
+      const dir = new THREE.Vector3().subVectors(camera.position, this.target).normalize();
+      this._quat.setFromUnitVectors(_FORWARD, dir);
+    }
 
     // Scratch instances reused on every input / frame to avoid GC churn in
     // the hot drag/inertia path. Never escape this class.
@@ -48,7 +55,13 @@ export class GlobeControls extends THREE.EventDispatcher {
     this._tmpVec3 = new THREE.Vector3();
 
     this._pointers = new Map();
-    this._twoFingerLast = null;
+    // Two-finger gesture snapshots are reused in-place instead of being
+    // reallocated each pointermove (was: `return {distance, angle};` plus a
+    // `[...this._pointers.values()]` array spread). Keeps the hot pinch /
+    // twist path allocation-free.
+    this._twoFingerCur = { distance: 0, angle: 0 };
+    this._twoFingerLast = { distance: 0, angle: 0 };
+    this._twoFingerLastValid = false;
     this._inertia = { pitch: 0, yaw: 0, roll: 0, zoom: 1 };
     this._dragging = false;
     // True when input or inertia has updated _quat/_distance since the last
@@ -80,12 +93,18 @@ export class GlobeControls extends THREE.EventDispatcher {
   // search-result flyTo animates camera.position directly). Without it, the
   // next gesture would apply deltas to stale _quat/_distance and snap the
   // camera back to the pre-fly orbit. Picks the shortest-arc quaternion, so
-  // any prior camera roll is discarded — fine for a "go-to" operation.
+  // any prior camera roll is discarded — fine for a "go-to" operation. Also
+  // clears in-flight inertia so a fling that's still decaying doesn't fight
+  // the external animation.
   syncFromCamera() {
     this._distance = this.camera.position.distanceTo(this.target);
     if (this._distance < 1e-6) return;
     this._tmpVec3.subVectors(this.camera.position, this.target).normalize();
-    this._quat.setFromUnitVectors(new THREE.Vector3(0, 0, 1), this._tmpVec3);
+    this._quat.setFromUnitVectors(_FORWARD, this._tmpVec3);
+    this._inertia.pitch = 0;
+    this._inertia.yaw = 0;
+    this._inertia.roll = 0;
+    this._inertia.zoom = 1;
   }
 
   // ---- input handlers ----
@@ -94,7 +113,10 @@ export class GlobeControls extends THREE.EventDispatcher {
     if (!this.enabled) return;
     this.dom.setPointerCapture(e.pointerId);
     this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (this._pointers.size === 2) this._twoFingerLast = this._twoFingerSnapshot();
+    if (this._pointers.size === 2) {
+      this._fillTwoFingerSnapshot(this._twoFingerLast);
+      this._twoFingerLastValid = true;
+    }
     if (!this._dragging) {
       this._dragging = true;
       this.dispatchEvent({ type: "start" });
@@ -123,24 +145,33 @@ export class GlobeControls extends THREE.EventDispatcher {
       this._inertia.roll = 0;
       this._changed = true;
     } else if (this._pointers.size === 2) {
-      const cur = this._twoFingerSnapshot();
-      if (this._twoFingerLast) {
+      this._fillTwoFingerSnapshot(this._twoFingerCur);
+      const cur = this._twoFingerCur;
+      const last = this._twoFingerLast;
+      // Guard against pinch ratio blowups when the two pointers land on top
+      // of each other (cur.distance ≈ 0) — would otherwise produce
+      // Infinity/NaN that contaminates _distance and _inertia.zoom forever.
+      const MIN_PINCH = 1e-3;
+      if (this._twoFingerLastValid && cur.distance > MIN_PINCH && last.distance > MIN_PINCH) {
         // Pinch.
-        const ratio = this._twoFingerLast.distance / cur.distance;
+        const ratio = last.distance / cur.distance;
         const scale = Math.pow(ratio, this.zoomSpeed);
-        this._applyZoom(scale);
-        this._inertia.zoom = scale;
+        if (Number.isFinite(scale) && scale > 0) {
+          this._applyZoom(scale);
+          this._inertia.zoom = scale;
+        }
         // Twist. atan2 in screen-space (y-down) increases clockwise, which
         // matches what users expect: twist your fingers CW → scene CW.
-        let dAngle = cur.angle - this._twoFingerLast.angle;
+        let dAngle = cur.angle - last.angle;
         if (dAngle > Math.PI) dAngle -= 2 * Math.PI;
         if (dAngle < -Math.PI) dAngle += 2 * Math.PI;
-        const dRoll = dAngle;
-        this._applyEuler(0, 0, dRoll);
-        this._inertia.roll = dRoll;
+        this._applyEuler(0, 0, dAngle);
+        this._inertia.roll = dAngle;
         this._changed = true;
       }
-      this._twoFingerLast = cur;
+      last.distance = cur.distance;
+      last.angle = cur.angle;
+      this._twoFingerLastValid = true;
     }
     // Camera write + 'change' dispatch happen in update() so we only emit
     // one event per animation frame even if many pointer events fired.
@@ -152,11 +183,13 @@ export class GlobeControls extends THREE.EventDispatcher {
     try { this.dom.releasePointerCapture(e.pointerId); } catch (_) {}
     if (this._pointers.size === 0) {
       this._dragging = false;
+      this._twoFingerLastValid = false;
       this.dispatchEvent({ type: "end" });
     } else if (this._pointers.size === 1) {
-      this._twoFingerLast = null;
+      this._twoFingerLastValid = false;
     } else if (this._pointers.size === 2) {
-      this._twoFingerLast = this._twoFingerSnapshot();
+      this._fillTwoFingerSnapshot(this._twoFingerLast);
+      this._twoFingerLastValid = true;
     }
   }
 
@@ -168,12 +201,18 @@ export class GlobeControls extends THREE.EventDispatcher {
     this._changed = true;
   }
 
-  _twoFingerSnapshot() {
-    const [a, b] = [...this._pointers.values()];
-    return {
-      distance: Math.hypot(b.x - a.x, b.y - a.y),
-      angle: Math.atan2(b.y - a.y, b.x - a.x),
-    };
+  // Fill `out` with the distance and angle between the first two pointers
+  // in this._pointers, iterating the Map once without an array spread.
+  _fillTwoFingerSnapshot(out) {
+    let ax = 0, ay = 0, bx = 0, by = 0;
+    let i = 0;
+    for (const p of this._pointers.values()) {
+      if (i === 0) { ax = p.x; ay = p.y; }
+      else { bx = p.x; by = p.y; }
+      if (++i === 2) break;
+    }
+    out.distance = Math.hypot(bx - ax, by - ay);
+    out.angle = Math.atan2(by - ay, bx - ax);
   }
 
   // ---- math ----
