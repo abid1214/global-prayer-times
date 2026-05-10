@@ -41,10 +41,20 @@ export class GlobeControls extends THREE.EventDispatcher {
     const dir = new THREE.Vector3().subVectors(camera.position, this.target).normalize();
     this._quat.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
 
+    // Scratch instances reused on every input / frame to avoid GC churn in
+    // the hot drag/inertia path. Never escape this class.
+    this._tmpQuat = new THREE.Quaternion();
+    this._tmpEuler = new THREE.Euler(0, 0, 0, "XYZ");
+    this._tmpVec3 = new THREE.Vector3();
+
     this._pointers = new Map();
     this._twoFingerLast = null;
     this._inertia = { pitch: 0, yaw: 0, roll: 0, zoom: 1 };
     this._dragging = false;
+    // True when input or inertia has updated _quat/_distance since the last
+    // update() tick — drives both the 'change' dispatch and the return value
+    // (which is what main.js uses to gate adaptive pixel-ratio).
+    this._changed = false;
 
     this._onPointerDown = this._onPointerDown.bind(this);
     this._onPointerMove = this._onPointerMove.bind(this);
@@ -58,9 +68,24 @@ export class GlobeControls extends THREE.EventDispatcher {
     domElement.addEventListener("wheel", this._onWheel, { passive: false });
     // OrbitControls used to set touch-action; mirror that so the browser
     // doesn't try to scroll/pinch-zoom the page while we capture touches.
+    // Stash the prior value so dispose() can restore it.
+    this._priorTouchAction = domElement.style.touchAction;
     domElement.style.touchAction = "none";
 
     this._writeCameraTransform();
+  }
+
+  // Recompute internal state from the current camera transform. Use this
+  // whenever the camera has been moved outside the controls (e.g. main.js's
+  // search-result flyTo animates camera.position directly). Without it, the
+  // next gesture would apply deltas to stale _quat/_distance and snap the
+  // camera back to the pre-fly orbit. Picks the shortest-arc quaternion, so
+  // any prior camera roll is discarded — fine for a "go-to" operation.
+  syncFromCamera() {
+    this._distance = this.camera.position.distanceTo(this.target);
+    if (this._distance < 1e-6) return;
+    this._tmpVec3.subVectors(this.camera.position, this.target).normalize();
+    this._quat.setFromUnitVectors(new THREE.Vector3(0, 0, 1), this._tmpVec3);
   }
 
   // ---- input handlers ----
@@ -86,6 +111,7 @@ export class GlobeControls extends THREE.EventDispatcher {
     const prev = this._pointers.get(e.pointerId);
     const dx = e.clientX - prev.x;
     const dy = e.clientY - prev.y;
+    if (dx === 0 && dy === 0) return; // resting finger — don't mark dirty
     this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (this._pointers.size === 1) {
@@ -95,6 +121,7 @@ export class GlobeControls extends THREE.EventDispatcher {
       this._inertia.pitch = dPitch;
       this._inertia.yaw = dYaw;
       this._inertia.roll = 0;
+      this._changed = true;
     } else if (this._pointers.size === 2) {
       const cur = this._twoFingerSnapshot();
       if (this._twoFingerLast) {
@@ -111,11 +138,12 @@ export class GlobeControls extends THREE.EventDispatcher {
         const dRoll = dAngle;
         this._applyEuler(0, 0, dRoll);
         this._inertia.roll = dRoll;
+        this._changed = true;
       }
       this._twoFingerLast = cur;
     }
-    this._writeCameraTransform();
-    this.dispatchEvent({ type: "change" });
+    // Camera write + 'change' dispatch happen in update() so we only emit
+    // one event per animation frame even if many pointer events fired.
   }
 
   _onPointerUp(e) {
@@ -137,8 +165,7 @@ export class GlobeControls extends THREE.EventDispatcher {
     e.preventDefault();
     const scale = Math.exp(e.deltaY * 0.001 * this.zoomSpeed);
     this._applyZoom(scale);
-    this._writeCameraTransform();
-    this.dispatchEvent({ type: "change" });
+    this._changed = true;
   }
 
   _twoFingerSnapshot() {
@@ -156,10 +183,9 @@ export class GlobeControls extends THREE.EventDispatcher {
     // local Y, roll around local Z. Right-multiplying composes in local
     // frame, which keeps drag direction intuitive even when the camera is
     // upside-down after a pole crossing.
-    const dq = new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(dPitch, dYaw, dRoll, "XYZ")
-    );
-    this._quat.multiply(dq);
+    this._tmpEuler.set(dPitch, dYaw, dRoll, "XYZ");
+    this._tmpQuat.setFromEuler(this._tmpEuler);
+    this._quat.multiply(this._tmpQuat);
     this._quat.normalize();
   }
 
@@ -171,9 +197,10 @@ export class GlobeControls extends THREE.EventDispatcher {
   }
 
   _writeCameraTransform() {
-    const offset = new THREE.Vector3(0, 0, this._distance).applyQuaternion(this._quat);
-    this.camera.position.copy(this.target).add(offset);
-    this.camera.up.set(0, 1, 0).applyQuaternion(this._quat);
+    this._tmpVec3.set(0, 0, this._distance).applyQuaternion(this._quat);
+    this.camera.position.copy(this.target).add(this._tmpVec3);
+    this._tmpVec3.set(0, 1, 0).applyQuaternion(this._quat);
+    this.camera.up.copy(this._tmpVec3);
     this.camera.lookAt(this.target);
   }
 
@@ -182,39 +209,37 @@ export class GlobeControls extends THREE.EventDispatcher {
   update() {
     if (!this.enabled) return false;
 
-    if (this._dragging) {
-      // While dragging, motion is applied immediately on input. Return true
-      // so the render loop keeps painting the latest camera.
-      return true;
+    // Inertia (only after release — during drag, input handlers stamp
+    // _changed directly).
+    if (!this._dragging) {
+      const eps = 1e-5;
+      const decay = 1 - this.dampingFactor;
+      const i = this._inertia;
+      if (Math.abs(i.pitch) > eps || Math.abs(i.yaw) > eps || Math.abs(i.roll) > eps) {
+        this._applyEuler(i.pitch, i.yaw, i.roll);
+        i.pitch *= decay;
+        i.yaw   *= decay;
+        i.roll  *= decay;
+        this._changed = true;
+      } else {
+        i.pitch = i.yaw = i.roll = 0;
+      }
+      if (Math.abs(i.zoom - 1) > eps) {
+        this._applyZoom(i.zoom);
+        i.zoom = 1 + (i.zoom - 1) * decay;
+        this._changed = true;
+      } else {
+        i.zoom = 1;
+      }
     }
 
-    const eps = 1e-5;
-    const decay = 1 - this.dampingFactor;
-    let moved = false;
-
-    const i = this._inertia;
-    if (Math.abs(i.pitch) > eps || Math.abs(i.yaw) > eps || Math.abs(i.roll) > eps) {
-      this._applyEuler(i.pitch, i.yaw, i.roll);
-      i.pitch *= decay;
-      i.yaw   *= decay;
-      i.roll  *= decay;
-      moved = true;
-    } else {
-      i.pitch = i.yaw = i.roll = 0;
-    }
-    if (Math.abs(i.zoom - 1) > eps) {
-      this._applyZoom(i.zoom);
-      i.zoom = 1 + (i.zoom - 1) * decay;
-      moved = true;
-    } else {
-      i.zoom = 1;
-    }
-
-    if (moved) {
+    if (this._changed) {
       this._writeCameraTransform();
       this.dispatchEvent({ type: "change" });
+      this._changed = false;
+      return true;
     }
-    return moved;
+    return false;
   }
 
   dispose() {
@@ -223,5 +248,6 @@ export class GlobeControls extends THREE.EventDispatcher {
     this.dom.removeEventListener("pointerup", this._onPointerUp);
     this.dom.removeEventListener("pointercancel", this._onPointerUp);
     this.dom.removeEventListener("wheel", this._onWheel);
+    this.dom.style.touchAction = this._priorTouchAction;
   }
 }

@@ -568,6 +568,10 @@ function flyTo(latRad, lonRad) {
     const eased = 1 - Math.pow(1 - k, 3);
     camera.position.lerpVectors(startPos, endPos, eased);
     camera.lookAt(0, 0, 0);
+    // Keep GlobeControls' internal quat/distance in lockstep with the
+    // animated camera, otherwise the next user gesture would apply deltas
+    // to stale state and snap the view back to the pre-fly orbit.
+    controls.syncFromCamera();
     markDirty();
     if (k < 1) requestAnimationFrame(step);
   }
