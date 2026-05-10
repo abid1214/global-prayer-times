@@ -556,17 +556,28 @@ initSearch(({ lat, lon, name }) => {
 });
 
 function flyTo(latRad, lonRad) {
+  // Slerp the direction so the camera stays at a constant radius
+  // throughout the flight. A linear lerp between two same-distance
+  // positions passes through the chord between them — for near-antipodal
+  // moves the chord grazes the origin, briefly violating
+  // controls.minDistance and triggering jumpy syncFromCamera clamps
+  // mid-flight.
   const v = latLonToVec3(latRad, lonRad);
-  const target = new THREE.Vector3(v[0], v[1], v[2]);
   const dist = camera.position.length();
-  const endPos = target.clone().multiplyScalar(dist);
-  const startPos = camera.position.clone();
+  const startDir = camera.position.clone().normalize();
+  const endDir = new THREE.Vector3(v[0], v[1], v[2]);
+  const totalRot = new THREE.Quaternion().setFromUnitVectors(startDir, endDir);
   const startTime = performance.now();
   const dur = 800;
+  const partial = new THREE.Quaternion();
+  const identity = new THREE.Quaternion();
+  const dirAtT = new THREE.Vector3();
   function step(t) {
     const k = Math.min(1, (t - startTime) / dur);
     const eased = 1 - Math.pow(1 - k, 3);
-    camera.position.lerpVectors(startPos, endPos, eased);
+    partial.copy(identity).slerp(totalRot, eased);
+    dirAtT.copy(startDir).applyQuaternion(partial);
+    camera.position.copy(dirAtT).multiplyScalar(dist);
     camera.lookAt(0, 0, 0);
     // Keep GlobeControls' internal quat/distance in lockstep with the
     // animated camera, otherwise the next user gesture would apply deltas

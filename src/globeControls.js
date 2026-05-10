@@ -109,11 +109,13 @@ export class GlobeControls extends THREE.EventDispatcher {
     this._inertia.roll = 0;
     this._inertia.zoom = 1;
     const rawDistance = this.camera.position.distanceTo(this.target);
-    this._distance = Math.max(this.minDistance, Math.min(this.maxDistance, rawDistance));
     // If the camera is sitting on top of the target, the offset direction is
-    // undefined — leave _quat at its previous value rather than producing a
-    // NaN setFromUnitVectors on a zero-length vector.
+    // undefined. Don't mutate _distance / _quat / camera transform at all —
+    // leave the controls' last-known-good orientation so an in-flight
+    // animation that briefly grazes the origin can resume cleanly on the
+    // next frame instead of producing a half-derived state.
     if (rawDistance < 1e-6) return;
+    this._distance = Math.max(this.minDistance, Math.min(this.maxDistance, rawDistance));
     this._tmpVec3.subVectors(this.camera.position, this.target).normalize();
     // setFromUnitVectors picks the shortest-arc rotation, which discards
     // any roll the camera previously had. That's fine for "go-to" jumps,
