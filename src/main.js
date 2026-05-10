@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
@@ -8,6 +7,7 @@ import { sunPosition, latLonToVec3 } from "./solar.js";
 import { createEarthMaterial } from "./earthMaterial.js";
 import { showPanelForLocation } from "./panel.js";
 import { initSearch } from "./search.js";
+import { GlobeControls } from "./globeControls.js";
 
 // Uniformly-lit NASA Blue Marble composite (no baked-in sunlight shading).
 const DAY_TEXTURE = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
@@ -42,15 +42,12 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(3.6, 0, 0);
 camera.lookAt(0, 0, 0);
 
-const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = true;
+const controls = new GlobeControls(camera, canvas);
 controls.dampingFactor = 0.02;
-controls.rotateSpeed = 0.5;
-controls.enablePan = false;
+controls.rotateSpeed = 0.005;
 controls.minDistance = 1.25;
 controls.maxDistance = 8;
 controls.zoomSpeed = 0.6;
-controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE };
 
 // Starfield
 {
