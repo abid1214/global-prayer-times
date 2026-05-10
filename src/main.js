@@ -376,6 +376,7 @@ function initScrubber() {
     modeBtn.textContent = scrubMode;
     modeBtn.classList.toggle("date-mode", scrubMode === "d");
     modeBtn.title = scrubMode === "h" ? "Switch to date scrubbing" : "Switch to time scrubbing";
+    modeBtn.setAttribute("aria-pressed", scrubMode === "d" ? "true" : "false");
     refreshLabel();
     const now = effectiveNow();
     updateSunUniforms(now);
@@ -415,6 +416,7 @@ function initScrubber() {
   // Initial state — mirrors applyMode without clobbering scrub state.
   modeBtn.textContent = scrubMode;
   modeBtn.title = "Switch to date scrubbing";
+  modeBtn.setAttribute("aria-pressed", "false");
   refreshLabel();
   live.classList.add("active");
 }
