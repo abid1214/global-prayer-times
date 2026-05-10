@@ -21,20 +21,22 @@ const PRAYER_META = [
   { key: "isha",    label: "Isha",    color: "#283F6E" },
 ];
 
-// Aqrab al-Bilad threshold is sun-relative, not a fixed latitude. The
-// standard altitude-based Ja'fari calculation breaks when the sun never
-// reaches Fajr's -16° below horizon — geometrically, when |φ + δ| > 74°.
-// At δ = 0 the cap is symmetric ±74°; in summer (δ ≈ +23°) the same-
-// hemisphere cap shrinks to ~51° while the opposite hemisphere has no
-// cap at all, and vice versa in winter. Same logic mirrored in the
-// fragment shader.
+// Aqrab al-Bilad threshold is sun-relative. Two failure modes for the
+// standard Ja'fari calculation, both depending on the current solar
+// declination δ:
+//   • Fajr fails (sun never reaches -16° below horizon) when |φ + δ| > 74°.
+//   • Polar night (sun never rises above 0°) when |φ - δ| > 90° — Adhan
+//     can also miss Maghrib / sunrise in this regime.
+// Project to the closer of the two thresholds per hemisphere so we cover
+// both. Same logic mirrored in the fragment shader's poleFade.
 const FAJR_LIMIT_DEG = 74;
+const DAY_LIMIT_DEG = 90;
 
 export function getTimesForLocation(latDeg, lonDeg, date = new Date()) {
   const { declination } = sunPosition(date);
   const declDeg = (declination * 180) / Math.PI;
-  const northThresh =  FAJR_LIMIT_DEG - declDeg;
-  const southThresh = -FAJR_LIMIT_DEG - declDeg;
+  const northThresh = Math.min(FAJR_LIMIT_DEG - declDeg, DAY_LIMIT_DEG + declDeg);
+  const southThresh = Math.max(-FAJR_LIMIT_DEG - declDeg, -DAY_LIMIT_DEG + declDeg);
 
   let effLatDeg = latDeg;
   if (latDeg > northThresh) effLatDeg = northThresh;
