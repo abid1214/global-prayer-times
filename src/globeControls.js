@@ -1,9 +1,8 @@
 import * as THREE from "three";
 
-// Module-scope constants reused as input to THREE math methods that read
-// from but don't mutate them. Avoids allocating per call.
+// Module-scope constant reused as input to THREE.Quaternion.setFromUnitVectors
+// (reads it but doesn't mutate). Avoids allocating a (0,0,1) Vec3 per call.
 const _FORWARD = new THREE.Vector3(0, 0, 1);
-const _UP = new THREE.Vector3(0, 1, 0);
 
 // Quaternion-based orbit controls. Replaces three.js OrbitControls so that
 // (a) a vertical drag can flick past the poles (no spherical clamp on the
@@ -97,14 +96,21 @@ export class GlobeControls extends THREE.EventDispatcher {
   // clears in-flight inertia so a fling that's still decaying doesn't fight
   // the external animation.
   syncFromCamera() {
-    this._distance = this.camera.position.distanceTo(this.target);
-    if (this._distance < 1e-6) return;
-    this._tmpVec3.subVectors(this.camera.position, this.target).normalize();
-    this._quat.setFromUnitVectors(_FORWARD, this._tmpVec3);
+    // Always clear inertia first — the whole point of syncFromCamera is to
+    // accept that the camera has moved outside our control, so any in-flight
+    // fling shouldn't keep applying its decay on top of it.
     this._inertia.pitch = 0;
     this._inertia.yaw = 0;
     this._inertia.roll = 0;
     this._inertia.zoom = 1;
+    const rawDistance = this.camera.position.distanceTo(this.target);
+    this._distance = Math.max(this.minDistance, Math.min(this.maxDistance, rawDistance));
+    // If the camera is sitting on top of the target, the offset direction is
+    // undefined — leave _quat at its previous value rather than producing a
+    // NaN setFromUnitVectors on a zero-length vector.
+    if (rawDistance < 1e-6) return;
+    this._tmpVec3.subVectors(this.camera.position, this.target).normalize();
+    this._quat.setFromUnitVectors(_FORWARD, this._tmpVec3);
   }
 
   // ---- input handlers ----
@@ -134,7 +140,10 @@ export class GlobeControls extends THREE.EventDispatcher {
     const dx = e.clientX - prev.x;
     const dy = e.clientY - prev.y;
     if (dx === 0 && dy === 0) return; // resting finger — don't mark dirty
-    this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Mutate the existing pointer record in place (it's the same reference
+    // the Map already holds) instead of allocating a new {x,y} object.
+    prev.x = e.clientX;
+    prev.y = e.clientY;
 
     if (this._pointers.size === 1) {
       const dYaw = -dx * this.rotateSpeed;
