@@ -332,6 +332,10 @@ const SCRUB_MODES = {
   d: { min: -366, max: 366, step: 1,    msPerUnit: 86_400_000 },
 };
 let scrubMode = "h";
+// Reassigned inside initScrubber once the DOM is wired up. Called from
+// the throttled tick so the date-mode label keeps tracking the wall clock
+// (e.g. crossing midnight) without requiring user interaction.
+let refreshScrubLabel = () => {};
 
 function initScrubber() {
   const slider = document.getElementById("scrub");
@@ -358,6 +362,7 @@ function initScrubber() {
   function refreshLabel() {
     label.textContent = scrubMode === "h" ? fmtTimeOffset(scrubOffsetMs) : fmtDateOffset(scrubOffsetMs);
   }
+  refreshScrubLabel = refreshLabel;
 
   function applyMode() {
     const cfg = SCRUB_MODES[scrubMode];
@@ -474,6 +479,7 @@ function start() {
       const now = effectiveNow();
       updateSunUniforms(now);
       updateClock(now, scrubLive);
+      refreshScrubLabel();
       lastUniformUpdate = t;
       dirty = true;
     }
