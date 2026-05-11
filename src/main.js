@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
@@ -8,6 +7,7 @@ import { sunPosition, latLonToVec3 } from "./solar.js";
 import { createEarthMaterial } from "./earthMaterial.js";
 import { showPanelForLocation } from "./panel.js";
 import { initSearch } from "./search.js";
+import { GlobeControls } from "./globeControls.js";
 
 // Uniformly-lit NASA Blue Marble composite (no baked-in sunlight shading).
 const DAY_TEXTURE = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
@@ -42,15 +42,12 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(3.6, 0, 0);
 camera.lookAt(0, 0, 0);
 
-const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = true;
+const controls = new GlobeControls(camera, canvas);
 controls.dampingFactor = 0.02;
-controls.rotateSpeed = 0.5;
-controls.enablePan = false;
+controls.rotateSpeed = 1.5;
 controls.minDistance = 1.25;
 controls.maxDistance = 8;
 controls.zoomSpeed = 0.6;
-controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE };
 
 // Starfield
 {
@@ -559,18 +556,34 @@ initSearch(({ lat, lon, name }) => {
 });
 
 function flyTo(latRad, lonRad) {
+  // Slerp the direction so the camera stays at a constant radius
+  // throughout the flight. A linear lerp between two same-distance
+  // positions passes through the chord between them — for near-antipodal
+  // moves the chord grazes the origin, briefly violating
+  // controls.minDistance and triggering jumpy syncFromCamera clamps
+  // mid-flight.
   const v = latLonToVec3(latRad, lonRad);
-  const target = new THREE.Vector3(v[0], v[1], v[2]);
-  const dist = camera.position.length();
-  const endPos = target.clone().multiplyScalar(dist);
-  const startPos = camera.position.clone();
+  const target = controls.target; // single source of truth for orbit center
+  const offset = new THREE.Vector3().subVectors(camera.position, target);
+  const dist = offset.length();
+  const startDir = offset.clone().normalize();
+  const endDir = new THREE.Vector3(v[0], v[1], v[2]);
+  const totalRot = new THREE.Quaternion().setFromUnitVectors(startDir, endDir);
   const startTime = performance.now();
   const dur = 800;
+  const partial = new THREE.Quaternion();
+  const identity = new THREE.Quaternion();
+  const dirAtT = new THREE.Vector3();
   function step(t) {
     const k = Math.min(1, (t - startTime) / dur);
     const eased = 1 - Math.pow(1 - k, 3);
-    camera.position.lerpVectors(startPos, endPos, eased);
-    camera.lookAt(0, 0, 0);
+    partial.copy(identity).slerp(totalRot, eased);
+    dirAtT.copy(startDir).applyQuaternion(partial);
+    camera.position.copy(target).addScaledVector(dirAtT, dist);
+    // syncFromCamera() rewrites the camera transform (including its own
+    // camera.lookAt(target)) so any lookAt here would be immediately
+    // overwritten. Skip it.
+    controls.syncFromCamera();
     markDirty();
     if (k < 1) requestAnimationFrame(step);
   }
