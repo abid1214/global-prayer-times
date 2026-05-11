@@ -136,6 +136,13 @@ export class GlobeControls extends THREE.EventDispatcher {
 
   _onPointerDown(e) {
     if (!this.enabled) return;
+    // Ignore third-or-later touches: they're almost always an accidental
+    // resting finger on the phone. Tracking them would require a pointermove
+    // branch we don't have (size > 2), and the gesture would freeze until
+    // the user dropped back to 1–2 fingers. Letting the OS keep the
+    // pointer event but never .setPointerCapture-ing it means the original
+    // two pointers stay authoritative.
+    if (this._pointers.size >= 2) return;
     this.dom.setPointerCapture(e.pointerId);
     this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this._pointers.size === 2) {
