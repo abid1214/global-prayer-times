@@ -130,6 +130,12 @@ export class GlobeControls extends THREE.EventDispatcher {
     // visibly snap the camera to the unrolled state.
     this._quat.setFromUnitVectors(_FORWARD, this._tmpVec3);
     this._writeCameraTransform();
+    // Mark dirty so update() reports motion this frame too. flyTo and any
+    // other external animation drives camera.position then calls
+    // syncFromCamera; without this, update() would return false during the
+    // animation, the adaptive-DPR logic in main.js wouldn't drop to 1×, and
+    // the flight would render at full 2× DPR (visible jank on phones).
+    this._changed = true;
   }
 
   // ---- input handlers ----
