@@ -21,6 +21,32 @@ const isMobile = () => window.matchMedia("(max-width: 768px)").matches;
 
 panelClose.addEventListener("click", () => dismissPanel());
 
+// ---- shareable link ----
+// Encode the selected location as ?lat=&lon=(&name=) so the browser
+// address bar always shows a link the user can copy from. URL is kept
+// in sync on every showPanelForLocation via history.replaceState (no
+// page reload).
+function syncUrlFromLocation(loc) {
+  if (!loc) return;
+  if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) {
+    console.warn("syncUrlFromLocation: non-finite lat/lon, skipping URL update", loc);
+    return;
+  }
+  try {
+    const u = new URL(window.location.href);
+    u.searchParams.set("lat", loc.lat.toFixed(4));
+    u.searchParams.set("lon", loc.lon.toFixed(4));
+    if (loc.name) u.searchParams.set("name", loc.name);
+    else u.searchParams.delete("name");
+    history.replaceState(null, "", u.toString());
+  } catch (err) {
+    // history.replaceState can throw on file:// or sandboxed origins.
+    // Surface it instead of swallowing silently so dev failures stay
+    // visible, but don't let it break panel rendering.
+    console.warn("syncUrlFromLocation: history.replaceState failed", err);
+  }
+}
+
 let pendingDismissEnd = null;
 function cancelPendingDismiss() {
   if (!pendingDismissEnd) return;
@@ -223,6 +249,7 @@ function fmtBearing(deg) {
 export async function showPanelForLocation({ lat, lon, name }, date = new Date()) {
   const times = getTimesForLocation(lat, lon, date);
   lastLocation = { lat, lon, name, date, currentPrayer: times.currentPrayer };
+  syncUrlFromLocation(lastLocation);
 
   if (dismissed && isMobile()) {
     showPeek(lastLocation);
