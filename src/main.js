@@ -39,8 +39,40 @@ const camera = new THREE.PerspectiveCamera(
   0.01,
   1000
 );
-camera.position.set(3.6, 0, 0);
-camera.lookAt(0, 0, 0);
+
+// Default camera placement: from the sun looking at Earth, so the lit
+// hemisphere fills the screen on first paint. If a ?lat=&lon= link was
+// shared, point at that location instead. Either way, distance 3.6 from
+// origin (same as the original numeric setup).
+const INITIAL_DISTANCE = 3.6;
+const _initialView = parseUrlLocation();
+{
+  let dir;
+  if (_initialView) {
+    const v = latLonToVec3(_initialView.latRad, _initialView.lonRad);
+    dir = v;
+  } else {
+    const { sunDir } = sunPosition(new Date());
+    dir = sunDir;
+  }
+  camera.position.set(dir[0] * INITIAL_DISTANCE, dir[1] * INITIAL_DISTANCE, dir[2] * INITIAL_DISTANCE);
+  camera.lookAt(0, 0, 0);
+}
+
+function parseUrlLocation() {
+  const p = new URLSearchParams(window.location.search);
+  const lat = parseFloat(p.get("lat"));
+  const lon = parseFloat(p.get("lon"));
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return {
+    latDeg: lat,
+    lonDeg: lon,
+    latRad: (lat * Math.PI) / 180,
+    lonRad: (lon * Math.PI) / 180,
+    name: p.get("name") || null,
+  };
+}
 
 const controls = new GlobeControls(camera, canvas);
 controls.dampingFactor = 0.02;
@@ -164,6 +196,18 @@ const SUN_DISTANCE = 60;
   initToggles();
   initScrubber();
   start();
+
+  // If a shared link landed us with ?lat=&lon=, open the panel for that
+  // location now that earthMesh + controls are ready. Camera was already
+  // pointed at it by the setup above, so no flyTo is needed.
+  if (_initialView) {
+    setPin(_initialView.latRad, _initialView.lonRad);
+    setQiblaFrom(_initialView.latDeg, _initialView.lonDeg);
+    showPanelForLocation(
+      { lat: _initialView.latDeg, lon: _initialView.lonDeg, name: _initialView.name },
+      effectiveNow()
+    );
+  }
 })();
 
 function makePin() {

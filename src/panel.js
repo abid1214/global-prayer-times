@@ -9,6 +9,7 @@ const panelCurrent = document.getElementById("panelCurrent");
 const panelTimesBody = document.querySelector("#panelTimes tbody");
 const panelQibla = document.getElementById("panelQibla");
 const panelClose = document.getElementById("panelClose");
+const panelShare = document.getElementById("panelShare");
 const panelHandle = document.getElementById("panelHandle");
 const panelPeek = document.getElementById("panelPeek");
 const peekName = panelPeek.querySelector(".peekName");
@@ -20,6 +21,51 @@ let lastLocation = null;
 const isMobile = () => window.matchMedia("(max-width: 768px)").matches;
 
 panelClose.addEventListener("click", () => dismissPanel());
+
+// ---- shareable link ----
+// Encode the selected location as ?lat=&lon=(&name=) so reloading the URL
+// (or sending it to someone) reopens the same view. URL state is kept in
+// sync on every showPanelForLocation via history.replaceState so the
+// browser address bar always reflects the current selection.
+function buildShareUrl(loc) {
+  const u = new URL(window.location.href);
+  u.searchParams.set("lat", loc.lat.toFixed(4));
+  u.searchParams.set("lon", loc.lon.toFixed(4));
+  if (loc.name) u.searchParams.set("name", loc.name);
+  else u.searchParams.delete("name");
+  return u.toString();
+}
+
+function syncUrlFromLocation(loc) {
+  if (!loc) return;
+  try { history.replaceState(null, "", buildShareUrl(loc)); } catch (_) { /* file:// */ }
+}
+
+panelShare.addEventListener("click", async () => {
+  if (!lastLocation) return;
+  const url = buildShareUrl(lastLocation);
+  const shareData = {
+    title: "Global Prayer Times",
+    text: lastLocation.name
+      ? `Prayer times for ${lastLocation.name}`
+      : "Prayer times for this location",
+    url,
+  };
+  if (navigator.share) {
+    try { await navigator.share(shareData); return; } catch (_) { /* user cancelled */ }
+  }
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(url);
+      panelShare.textContent = "✓";
+      panelShare.classList.add("copied");
+      setTimeout(() => {
+        panelShare.textContent = "↗";
+        panelShare.classList.remove("copied");
+      }, 1400);
+    } catch (_) { /* clipboard denied */ }
+  }
+});
 
 let pendingDismissEnd = null;
 function cancelPendingDismiss() {
@@ -223,6 +269,7 @@ function fmtBearing(deg) {
 export async function showPanelForLocation({ lat, lon, name }, date = new Date()) {
   const times = getTimesForLocation(lat, lon, date);
   lastLocation = { lat, lon, name, date, currentPrayer: times.currentPrayer };
+  syncUrlFromLocation(lastLocation);
 
   if (dismissed && isMobile()) {
     showPeek(lastLocation);
@@ -233,6 +280,8 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
   panelPeek.hidden = true;
   panel.hidden = false;
   panel.style.transform = "";
+  panelShare.textContent = "↗";
+  panelShare.classList.remove("copied");
   panelLocation.textContent = name || "Selected location";
   panelCoords.textContent = fmtCoords(lat, lon);
   panelDate.textContent = "Loading local time…";
