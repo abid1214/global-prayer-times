@@ -28,6 +28,10 @@ panelClose.addEventListener("click", () => dismissPanel());
 // page reload).
 function syncUrlFromLocation(loc) {
   if (!loc) return;
+  if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) {
+    console.warn("syncUrlFromLocation: non-finite lat/lon, skipping URL update", loc);
+    return;
+  }
   try {
     const u = new URL(window.location.href);
     u.searchParams.set("lat", loc.lat.toFixed(4));
@@ -35,7 +39,12 @@ function syncUrlFromLocation(loc) {
     if (loc.name) u.searchParams.set("name", loc.name);
     else u.searchParams.delete("name");
     history.replaceState(null, "", u.toString());
-  } catch (_) { /* file:// or similar */ }
+  } catch (err) {
+    // history.replaceState can throw on file:// or sandboxed origins.
+    // Surface it instead of swallowing silently so dev failures stay
+    // visible, but don't let it break panel rendering.
+    console.warn("syncUrlFromLocation: history.replaceState failed", err);
+  }
 }
 
 let pendingDismissEnd = null;
