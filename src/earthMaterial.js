@@ -61,8 +61,8 @@ const FRAG = /* glsl */ `
     //   • Fajr fails (sun never reaches -16° below horizon) when |φ + δ| > 74°.
     //   • Polar night (sun never rises) when |φ - δ| > 90°.
     // The cap is whichever kicks in first per hemisphere.
-    const float FAJR_LIMIT = 1.29154; // 74° in radians (90° - 16°)
-    const float DAY_LIMIT  = 1.5708;  // 90° in radians (no sunrise)
+    const float FAJR_LIMIT = 74.0 * PI / 180.0; // 90° - 16° (Fajr fails beyond this)
+    const float DAY_LIMIT  = 0.5 * PI;          // 90° (polar night beyond this)
     float northThresh = min(FAJR_LIMIT - decl, DAY_LIMIT + decl);
     float southThresh = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl);
     // Hard-clamp effLat to the cap edge so the shader matches
