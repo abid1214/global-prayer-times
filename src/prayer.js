@@ -32,12 +32,14 @@ const PRAYER_META = [
 const FAJR_LIMIT_DEG = 74;
 const DAY_LIMIT_DEG = 90;
 
-// Compute the Aqrab al-Bilād projection for (latDeg, lonDeg, date) without
-// running the full Adhan PrayerTimes calculation. Returns the projection
-// info (an object with `projectedFromLat`, plus a copy of the clamped
-// `effLatDeg`) if the location falls inside the polar fade cap at this
-// date, or null if no projection is needed. Cheap enough to call from
-// render-frequency code paths.
+// Compute the Aqrab al-Bilād projection for (latDeg, date) without
+// running the full Adhan PrayerTimes calculation. Longitude is
+// irrelevant — the projection only clamps latitude — so it's not a
+// parameter. Returns the projection info (an object with
+// `projectedFromLat`, plus a copy of the clamped `effLatDeg`) if the
+// location falls inside the polar fade cap at this date, or null if no
+// projection is needed. Cheap enough to call from render-frequency code
+// paths.
 export function aqrabProjection(latDeg, date = new Date()) {
   const { declination } = sunPosition(date);
   const declDeg = (declination * 180) / Math.PI;
