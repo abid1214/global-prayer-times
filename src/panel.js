@@ -246,6 +246,51 @@ function fmtBearing(deg) {
   return `${d.toFixed(1)}° (${dirs[idx]})`;
 }
 
+function fmtLat(lat) {
+  return `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}`;
+}
+
+function fmtShortDate(d, tz) {
+  if (tz?.kind === "iana") {
+    return new Intl.DateTimeFormat([], {
+      month: "short", day: "numeric", year: "numeric", timeZone: tz.iana,
+    }).format(d);
+  }
+  return new Intl.DateTimeFormat([], {
+    month: "short", day: "numeric", year: "numeric", timeZone: "UTC",
+  }).format(d);
+}
+
+// Human description of how the polar-cap schedule was derived.
+// Returns null when no method is active (location outside the cap).
+function describePolarMethod(polarMethod, tz, date) {
+  if (!polarMethod) return null;
+  switch (polarMethod.kind) {
+    case "aqrab":
+      return `aqrab al-bilād (same lon) · projected from ${fmtLat(polarMethod.projectedFromLat)}`;
+    case "aqrab_city": {
+      if (!polarMethod.city) {
+        return `aqrab al-bilād (nearest city) · no city in window, fell back to ${fmtLat(polarMethod.projectedFromLat)}`;
+      }
+      const c = polarMethod.city;
+      // The shader can't carry a city table — visual cap always shows
+      // the same-longitude projection. Surface the discrepancy when the
+      // city actually moved the times.
+      return `aqrab al-bilād (nearest city) · times from ${c.name} (${fmtLat(c.lat)}); visual cap shows same-longitude projection at ${fmtLat(polarMethod.projectedFromLat)}`;
+    }
+    case "aqrab_awqat":
+      return `aqrab al-awqāt · schedule from ${fmtShortDate(polarMethod.derivedFromDate, tz)}`;
+    case "midnight":
+      return `niṣf al-layl (middle of night)`;
+    case "seventh":
+      return `sub'iyya (one-seventh)`;
+    case "angle_reduced":
+      return `angle-based with seasonal reduction · Fajr ${polarMethod.fajrAngle.toFixed(1)}°, Isha ${polarMethod.ishaAngle.toFixed(1)}°`;
+    default:
+      return null;
+  }
+}
+
 export async function showPanelForLocation({ lat, lon, name }, date = new Date()) {
   const times = getTimesForLocation(lat, lon, date);
   lastLocation = { lat, lon, name, date, currentPrayer: times.currentPrayer };
@@ -281,11 +326,8 @@ function render(lat, lon, date, tz) {
   const times = getTimesForLocation(lat, lon, date);
 
   let dateLine = `${fmtDateLabel(date, tz)} · ${tzLabel(tz, date)}`;
-  if (times.aqrab) {
-    const lat = times.aqrab.projectedFromLat;
-    const hemi = lat >= 0 ? "N" : "S";
-    dateLine += ` · projected from ${Math.abs(lat).toFixed(1)}°${hemi} (Aqrab al-Bilād)`;
-  }
+  const methodLine = describePolarMethod(times.polarMethod, tz, date);
+  if (methodLine) dateLine += ` · ${methodLine}`;
   panelDate.textContent = dateLine;
 
   const cur = times.currentPrayer;
