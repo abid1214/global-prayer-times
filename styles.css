@@ -342,6 +342,14 @@ html, body {
   padding: 4px 0 4px 12px;
   border-left: 2px solid rgba(106, 168, 255, 0.35);
 }
+#infoModal p.note {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-left: 2px solid rgba(106, 168, 255, 0.35);
+  background: rgba(106, 168, 255, 0.06);
+  font-size: 13px;
+  line-height: 1.55;
+}
 #infoModal .evidence p {
   margin: 6px 0;
   font-size: 12px;
