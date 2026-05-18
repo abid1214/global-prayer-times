@@ -40,10 +40,20 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 
-// Default camera placement: from the sun looking at Earth, so the lit
-// hemisphere fills the screen on first paint. If a ?lat=&lon= link was
-// shared, point at that location instead. Either way, distance 3.6 from
-// origin (same as the original numeric setup).
+// Default camera placement: place the camera so that scrubbing the hour
+// scrubber by ±12 h moves the sun *exactly* behind Earth from the
+// camera's vantage. Because the sun stays at the same declination as
+// time advances (declination changes are sub-arcminute per hour), the
+// y component of the sun's position at +12 h is unchanged. To get a
+// collinear camera–Earth–sun line at that future time, the camera
+// direction needs to be −sunDir(+12 h). With sunDir(+12 h) = sunDir(0)
+// with its xz components negated, that works out to:
+//   cameraDir = (sunDir.x, −sunDir.y, sunDir.z)
+// — sunDir(t=0) reflected through the equatorial plane. The lit
+// hemisphere is still in view at t=0 (cameraDir · sunDir(0) =
+// cos²δ − sin²δ = cos 2δ > 0 for any |δ| < 45°). If a ?lat=&lon=
+// link was shared, point at that location instead; the equatorial-
+// mirror trick is moot.
 const INITIAL_DISTANCE = 3.6;
 const _initialView = parseUrlLocation();
 {
@@ -53,7 +63,7 @@ const _initialView = parseUrlLocation();
     dir = v;
   } else {
     const { sunDir } = sunPosition(new Date());
-    dir = sunDir;
+    dir = [sunDir[0], -sunDir[1], sunDir[2]];
   }
   camera.position.set(dir[0] * INITIAL_DISTANCE, dir[1] * INITIAL_DISTANCE, dir[2] * INITIAL_DISTANCE);
   camera.lookAt(0, 0, 0);
