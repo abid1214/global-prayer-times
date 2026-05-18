@@ -418,7 +418,13 @@ html, body {
 }
 
 #panelCoords, #panelDate { font-size: 12px; }
-#panelDate { margin-bottom: 10px; }
+#panelDate { margin-bottom: 4px; }
+#panelMethodNote {
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.7;
+  margin-bottom: 10px;
+}
 
 #panelCurrent {
   font-size: 12px;

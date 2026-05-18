@@ -5,6 +5,7 @@ const panel = document.getElementById("panel");
 const panelLocation = document.getElementById("panelLocation");
 const panelCoords = document.getElementById("panelCoords");
 const panelDate = document.getElementById("panelDate");
+const panelMethodNote = document.getElementById("panelMethodNote");
 const panelCurrent = document.getElementById("panelCurrent");
 const panelTimesBody = document.querySelector("#panelTimes tbody");
 const panelQibla = document.getElementById("panelQibla");
@@ -262,30 +263,39 @@ function fmtShortDate(d, tz) {
 }
 
 // Human description of how the polar-cap schedule was derived.
-// Returns null when no method is active (location outside the cap).
-function describePolarMethod(polarMethod, tz, date) {
+// Returns { primary, secondary? } or null. `primary` is appended to
+// the date line; `secondary`, when present, renders as an italic
+// sub-line below — used only for caveats that don't belong in the
+// always-visible row.
+const CITY_VISUAL_DELTA_DEG = 1;
+function describePolarMethod(polarMethod, tz, _date) {
   if (!polarMethod) return null;
   switch (polarMethod.kind) {
     case "aqrab":
-      return `aqrab al-bilād (same lon) · projected from ${fmtLat(polarMethod.projectedFromLat)}`;
+      return { primary: `Method: aqrab al-bilād · projected from ${fmtLat(polarMethod.projectedFromLat)}` };
     case "aqrab_city": {
       if (!polarMethod.city) {
-        return `aqrab al-bilād (nearest city) · no city in window, fell back to ${fmtLat(polarMethod.projectedFromLat)}`;
+        return { primary: `Method: aqrab al-bilād (nearest city) · no city in window, fell back to ${fmtLat(polarMethod.projectedFromLat)}` };
       }
       const c = polarMethod.city;
-      // The shader can't carry a city table — visual cap always shows
-      // the same-longitude projection. Surface the discrepancy when the
-      // city actually moved the times.
-      return `aqrab al-bilād (nearest city) · times from ${c.name} (${fmtLat(c.lat)}); visual cap shows same-longitude projection at ${fmtLat(polarMethod.projectedFromLat)}`;
+      const out = { primary: `Method: aqrab al-bilād · times from ${c.name}` };
+      // Shader can't carry a city table — visual cap always uses the
+      // same-longitude projection. Only flag it when the discrepancy
+      // is visually meaningful (>1° lat difference between the city
+      // and the projection target).
+      if (Math.abs(c.lat - polarMethod.projectedFromLat) > CITY_VISUAL_DELTA_DEG) {
+        out.secondary = `(cap visualization uses ${fmtLat(polarMethod.projectedFromLat)} projection)`;
+      }
+      return out;
     }
     case "aqrab_awqat":
-      return `aqrab al-awqāt · schedule from ${fmtShortDate(polarMethod.derivedFromDate, tz)}`;
+      return { primary: `Method: aqrab al-awqāt · schedule from ${fmtShortDate(polarMethod.derivedFromDate, tz)}` };
     case "midnight":
-      return `niṣf al-layl (middle of night)`;
+      return { primary: `Method: niṣf al-layl (middle of night)` };
     case "seventh":
-      return `sub'iyya (one-seventh)`;
+      return { primary: `Method: sub'iyya (one-seventh)` };
     case "angle_reduced":
-      return `angle-based with seasonal reduction · Fajr ${polarMethod.fajrAngle.toFixed(1)}°, Isha ${polarMethod.ishaAngle.toFixed(1)}°`;
+      return { primary: `Method: angle-based with seasonal reduction · Fajr ${polarMethod.fajrAngle.toFixed(1)}°, Isha ${polarMethod.ishaAngle.toFixed(1)}°` };
     default:
       return null;
   }
@@ -308,6 +318,8 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
   panelLocation.textContent = name || "Selected location";
   panelCoords.textContent = fmtCoords(lat, lon);
   panelDate.textContent = "Loading local time…";
+  panelMethodNote.hidden = true;
+  panelMethodNote.textContent = "";
   panelCurrent.innerHTML = "";
   panelTimesBody.innerHTML = "";
   panelQibla.textContent = "";
@@ -326,9 +338,16 @@ function render(lat, lon, date, tz) {
   const times = getTimesForLocation(lat, lon, date);
 
   let dateLine = `${fmtDateLabel(date, tz)} · ${tzLabel(tz, date)}`;
-  const methodLine = describePolarMethod(times.polarMethod, tz, date);
-  if (methodLine) dateLine += ` · ${methodLine}`;
+  const method = describePolarMethod(times.polarMethod, tz, date);
+  if (method?.primary) dateLine += ` · ${method.primary}`;
   panelDate.textContent = dateLine;
+  if (method?.secondary) {
+    panelMethodNote.textContent = method.secondary;
+    panelMethodNote.hidden = false;
+  } else {
+    panelMethodNote.textContent = "";
+    panelMethodNote.hidden = true;
+  }
 
   const cur = times.currentPrayer;
   const meta = PRAYER_META.find((p) => p.key === cur);
