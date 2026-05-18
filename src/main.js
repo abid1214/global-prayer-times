@@ -626,6 +626,8 @@ function initScrubber() {
     // user scrubs the date. Re-aim the teal pin/arc against the new
     // date so they stay in sync with the panel's "projected from N°".
     refreshProjectionForCurrentSelection();
+    // TODO: side panel doesn't re-render with the scrubber — its prayer
+    // times stay frozen to the date the panel was opened with.
     markDirty();
   });
 
