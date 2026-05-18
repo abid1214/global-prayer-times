@@ -112,7 +112,7 @@ src/
   data/
     highLatCities.js    — curated city table (|lat| ≥ 50°); TODO: swap in Natural Earth
 tests/
-  classifierAgreement.html  — open in browser; asserts classifier agreement for methods 0/1
+  classifierAgreement.html  — open in browser; asserts classifier agreement for methods 1 and 2 (aqrab same-longitude + nearest-city)
   classifierAgreement.test.js
 ```
 

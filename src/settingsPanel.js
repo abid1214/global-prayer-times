@@ -13,21 +13,38 @@ const backdrop = document.getElementById("settingsBackdrop");
 const handle  = document.getElementById("settingsHandle");
 const radios  = document.querySelectorAll('input[name="polarMethod"]');
 
-// Pending close-transition timeout. Tracked so a rapid close → re-open
-// (within the 220 ms transition) can cancel it before it flips
-// overlay.hidden under an open panel.
+// Pending state tracked so rapid open/close cycles don't leak listeners
+// or race each other:
+//   • hideTimeout — close's post-transition overlay.hidden=true; cleared
+//     on open() so a quick re-open doesn't get yanked out of layout
+//   • openRaf    — the requestAnimationFrame that adds .open after the
+//     layout commits hidden=false; cleared on close() so a quick close
+//     can't be undone by a queued RAF
+//   • isOpen     — guards open() and close() against duplicate work
+//     (re-clicking the gear would otherwise re-register the keydown
+//     listener every time)
 let hideTimeout = null;
+let openRaf = null;
+let isOpen = false;
 
 function open() {
+  if (isOpen) return;
+  isOpen = true;
   if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
   overlay.hidden = false;
   // Allow the layout to commit hidden=false before adding .open so
   // the slide-in transition fires on first open.
-  requestAnimationFrame(() => overlay.classList.add("open"));
+  openRaf = requestAnimationFrame(() => {
+    openRaf = null;
+    overlay.classList.add("open");
+  });
   document.addEventListener("keydown", onKey);
 }
 
 function close() {
+  if (!isOpen) return;
+  isOpen = false;
+  if (openRaf !== null) { cancelAnimationFrame(openRaf); openRaf = null; }
   overlay.classList.remove("open");
   document.removeEventListener("keydown", onKey);
   // Wait for the slide-out transition before yanking the overlay
@@ -67,10 +84,13 @@ function endDrag(commit) {
   if (!drag) return;
   panel.classList.remove("dragging");
   if (commit && drag.dy > 80) {
+    // Clear the inline transform BEFORE close() so the CSS slide-out
+    // transition (translateY(0) → translateY(100%) via removing .open)
+    // can actually run. Leaving the inline transform set would
+    // override the CSS and the sheet would snap away when hideTimeout
+    // fires instead of animating out.
+    panel.style.transform = "";
     close();
-    // Reset inline transform after the close transition completes so
-    // a subsequent open doesn't start from the dragged position.
-    setTimeout(() => { panel.style.transform = ""; }, 230);
   } else {
     panel.style.transform = "";
   }

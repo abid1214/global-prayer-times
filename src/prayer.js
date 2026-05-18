@@ -186,9 +186,11 @@ function buildResult({ latDeg, lonDeg, date, times, polarMethod, classifyMode })
     // For aqrab al-awqāt the times are from a historical date, so
     // compare time-of-day rather than absolute instant. All other
     // clock-mode methods (midnight, seventh, angle-reduced) compute
-    // for today and use direct comparison.
+    // for today and use direct comparison. Use the passed-in `date`
+    // (not new Date()) so this matches sun-mode's reference instant
+    // and stays consistent with the scrubber's notion of "now".
     const crossDay = polarMethod?.kind === "aqrab_awqat";
-    currentPrayer = classifyByClock(times, new Date(), { crossDay });
+    currentPrayer = classifyByClock(times, date, { crossDay });
   } else {
     // Sun-relative: use the projected location's coords with the actual
     // current date.
