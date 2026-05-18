@@ -1,6 +1,6 @@
 // Single source of truth for user-configurable options. Persists to
-// localStorage and notifies subscribers on change so the shader uniform,
-// the side panel, and the projection viz stay in lockstep.
+// localStorage and notifies subscribers on change so the side panel and
+// the projection viz stay in lockstep.
 
 export const POLAR_METHODS = Object.freeze({
   AQRAB_SAME_LON:     "aqrab_same_lon",
@@ -11,8 +11,11 @@ export const POLAR_METHODS = Object.freeze({
   ANGLE_REDUCED:      "angle_reduced",
 });
 
-// Index doubles as the shader uniform value (u_polarMethod, int 0..5).
-// Order is load-bearing — do not reorder without updating earthMaterial.js.
+// Canonical method order — used to validate persisted values and the
+// URL ?m= parameter. The shader is intentionally NOT method-aware (cap
+// always uses same-longitude projection regardless of choice, see the
+// docblock in src/earthMaterial.js), so this order is not bound to any
+// uniform; it only needs to be stable for storage round-tripping.
 const METHOD_ORDER = [
   POLAR_METHODS.AQRAB_SAME_LON,
   POLAR_METHODS.AQRAB_NEAREST_CITY,
@@ -48,10 +51,6 @@ function load() {
 export function getMethod() {
   if (cached === null) cached = load();
   return cached;
-}
-
-export function methodKind(method = getMethod()) {
-  return METHOD_ORDER.indexOf(method);
 }
 
 export function setMethod(method) {

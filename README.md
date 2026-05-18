@@ -31,7 +31,7 @@ To install on a phone as a fullscreen app, open the page in Safari → Share →
 
 ## Tech stack
 
-- **[Three.js](https://threejs.org/)** for the 3D globe (sphere geometry, OrbitControls, Line2 for the thick qibla arc).
+- **[Three.js](https://threejs.org/)** for the 3D globe (sphere geometry, custom quaternion-based GlobeControls in `src/globeControls.js`, Line2 for the thick qibla arc).
 - **GLSL fragment shader** (in `src/earthMaterial.js`) that classifies the prayer window per pixel — that's why the bands are smooth and continuous instead of a discretized grid.
 - **[Adhan.js](https://github.com/batoulapps/adhan-js)** for prayer time calculations in the side panel.
 - **[tz-lookup](https://github.com/darkskyapp/tz-lookup-oss)** to resolve IANA time zones from coordinates.
@@ -99,7 +99,8 @@ For methods 2–6 the visualization and the panel times therefore *disagree by d
 index.html              — single-page entry, CDN importmap, info modal, settings slide-over
 styles.css              — desktop + responsive (≤768, ≤480, pointer:coarse)
 src/
-  main.js               — three.js scene, OrbitControls, render loop, click + search
+  main.js               — three.js scene, render loop, click + search
+  globeControls.js      — quaternion-based drag/zoom/pinch controls (replaces OrbitControls)
   earthMaterial.js      — GLSL shader for prayer-window classification + cap derivation
   solar.js              — NOAA solar position math + per-pixel classifier
   prayer.js             — adhan.js wrapper, six high-latitude methods, clock classifier

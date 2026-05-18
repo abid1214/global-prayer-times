@@ -1,10 +1,7 @@
 // Settings slide-over: open/close + radio reflects current method
-// choice. The radios call setMethod() (which persists to
-// localStorage), so the next panel render picks up the new method.
-// Live re-render of the existing panel/main UI on change is wired in
-// a follow-up commit — at this stage the UI is interactive but
-// state-flow changes only land after the next render trigger
-// (location click, scrubber tick, page reload).
+// choice. The radios call setMethod() (which persists to localStorage
+// and fans out to subscribers); src/panel.js and src/main.js subscribe
+// for live re-render of the side panel and the projection pin/arc.
 
 import { POLAR_METHODS, getMethod, setMethod } from "./settings.js";
 
@@ -16,7 +13,13 @@ const backdrop = document.getElementById("settingsBackdrop");
 const handle  = document.getElementById("settingsHandle");
 const radios  = document.querySelectorAll('input[name="polarMethod"]');
 
+// Pending close-transition timeout. Tracked so a rapid close → re-open
+// (within the 220 ms transition) can cancel it before it flips
+// overlay.hidden under an open panel.
+let hideTimeout = null;
+
 function open() {
+  if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
   overlay.hidden = false;
   // Allow the layout to commit hidden=false before adding .open so
   // the slide-in transition fires on first open.
@@ -28,8 +31,13 @@ function close() {
   overlay.classList.remove("open");
   document.removeEventListener("keydown", onKey);
   // Wait for the slide-out transition before yanking the overlay
-  // out of the layout, otherwise it just snaps away.
-  setTimeout(() => { overlay.hidden = true; }, 220);
+  // out of the layout, otherwise it just snaps away. open() cancels
+  // this if the user re-opens before it fires.
+  if (hideTimeout) clearTimeout(hideTimeout);
+  hideTimeout = setTimeout(() => {
+    overlay.hidden = true;
+    hideTimeout = null;
+  }, 220);
 }
 
 function onKey(e) {
@@ -72,8 +80,8 @@ handle.addEventListener("pointerup",     () => endDrag(true));
 handle.addEventListener("pointercancel", () => endDrag(false));
 
 // Initialize the radio to whatever's persisted, then write back any
-// user selection so the next prayer.js getMethod() reads the new
-// choice. Wiring the live re-render is the next step.
+// user selection. setMethod() fans the change out to subscribers
+// (panel.js, main.js) for live re-render.
 const current = getMethod();
 for (const r of radios) {
   if (r.value === current) r.checked = true;

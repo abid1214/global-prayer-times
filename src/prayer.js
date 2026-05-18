@@ -123,14 +123,33 @@ function anchorMaghrib(times) {
 // methods 2-5 the bands inside the cap will therefore disagree with
 // the side panel — the panel's descriptor line in panel.js surfaces
 // the divergence.
-export function classifyByClock(times, now) {
+export function classifyByClock(times, now, opts = {}) {
   const t = now.getTime();
-  const fajr    = times.fajr   ? times.fajr.getTime()    : NaN;
-  const sunrise = times.sunrise ? times.sunrise.getTime(): NaN;
-  const dhuhr   = times.dhuhr  ? times.dhuhr.getTime()   : NaN;
-  const asr     = times.asr    ? times.asr.getTime()     : NaN;
-  const maghrib = times.maghrib ? times.maghrib.getTime(): NaN;
-  const isha    = times.isha   ? times.isha.getTime()    : NaN;
+  // opts.crossDay = true: project each prayer time onto the same UTC
+  // calendar day as `now` before comparing. Required for aqrab
+  // al-awqāt, where the schedule is from a historical date and direct
+  // absolute-instant comparison always falls through to "isha".
+  // opts.crossDay = false (default): compare absolute instants. This
+  // is correct for same-day schedules (methods 1, 2, 4, 5, 6) and
+  // critically must NOT be reprojected — Adhan can place a prayer
+  // time on the previous UTC calendar day (e.g., Tromsø summer fajr
+  // ≈ 22:46 UTC the day before the panel date, due to longitude
+  // offset placing solar antimeridian before UTC midnight). Day-
+  // projecting that would produce a phantom-late fajr.
+  const project = opts.crossDay
+    ? (d) => {
+        if (!d || !Number.isFinite(d.getTime())) return NaN;
+        const out = new Date(d);
+        out.setUTCFullYear(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+        return out.getTime();
+      }
+    : (d) => (d && Number.isFinite(d.getTime()) ? d.getTime() : NaN);
+  const fajr    = project(times.fajr);
+  const sunrise = project(times.sunrise);
+  const dhuhr   = project(times.dhuhr);
+  const asr     = project(times.asr);
+  const maghrib = project(times.maghrib);
+  const isha    = project(times.isha);
 
   // Walk the day forward in band order. Each band starts at its threshold
   // and continues until the next valid threshold. NaN markers (degenerate
@@ -164,7 +183,12 @@ function buildResult({ latDeg, lonDeg, date, times, polarMethod, classifyMode })
   // else.
   let currentPrayer;
   if (classifyMode === "clock") {
-    currentPrayer = classifyByClock(times, new Date());
+    // For aqrab al-awqāt the times are from a historical date, so
+    // compare time-of-day rather than absolute instant. All other
+    // clock-mode methods (midnight, seventh, angle-reduced) compute
+    // for today and use direct comparison.
+    const crossDay = polarMethod?.kind === "aqrab_awqat";
+    currentPrayer = classifyByClock(times, new Date(), { crossDay });
   } else {
     // Sun-relative: use the projected location's coords with the actual
     // current date.
