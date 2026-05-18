@@ -46,11 +46,12 @@ const camera = new THREE.PerspectiveCamera(
 // camera-Earth-sun line is collinear at that future moment.
 //
 // Caveats worth knowing:
-//  • Lit hemisphere is on the visible side at t = 0, but the dot
-//    product cameraDir · sunDir(t_load) is cos 2δ, not 1: near
-//    equinox the subsolar point sits near the centre of the visible
-//    disc; at solstice it sits ~47° off-centre but still on the lit
-//    side (cos 46° ≈ 0.68).
+//  • Lit hemisphere is on the visible side at t = 0. The dot product
+//    cameraDir · sunDir(t_load) works out to cos(δ_load + δ_load+12h),
+//    which is ≈ cos 2δ to better than a milli-degree (δ drifts only
+//    ~0.035° in 12 h). Near equinox the subsolar point sits near the
+//    centre of the visible disc; at solstice it's ~47° off-centre but
+//    still on the lit side (cos 46° ≈ 0.68).
 //  • The +12 h alignment is exact at the *moment* of page load. The
 //    scrubber's "+12 h" is computed against fresh Date.now() on
 //    every input, so if the page sits open for hours before the user
