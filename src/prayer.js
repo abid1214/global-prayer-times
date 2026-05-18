@@ -42,12 +42,25 @@ const PRAYER_META = [
 // effective-latitude clamp.
 const FAJR_LIMIT_DEG = 74;
 const DAY_LIMIT_DEG = 90 + 50 / 60;  // 90.8333…
+// Adhan's correctedHourAngle computes
+//   H = acos((sin(α) - sin(φ)·sin(δ)) / (cos(φ)·cos(δ)))
+// which approaches acos(±1) at the cap edge and goes NaN under
+// double-precision rounding within ~0.01° of that singularity. A
+// 0.05° pullback gives ~5× safety while shifting the projected
+// schedule by only ~5.5 km of arc — visually indistinguishable on
+// the globe and well below the precision of the underlying
+// adhan/NOAA sun position. Symmetric form rescues both polar-night
+// (cosHsunrise → 1) and Fajr-cap (cosHfajr → -1) sides — exactly
+// the regression bf85d01's refraction shift exposed: the previous
+// 0.4° buffer was masking the singularity, and adding +0.83° for
+// the apparent-horizon correction consumed it.
+const SAFE_MARGIN_DEG = 0.05;
 
 export function aqrabProjection(latDeg, date = new Date()) {
   const { declination } = sunPosition(date);
   const declDeg = (declination * 180) / Math.PI;
-  const northThresh = Math.min(FAJR_LIMIT_DEG - declDeg, DAY_LIMIT_DEG + declDeg);
-  const southThresh = Math.max(-FAJR_LIMIT_DEG - declDeg, -DAY_LIMIT_DEG + declDeg);
+  const northThresh = Math.min(FAJR_LIMIT_DEG - declDeg, DAY_LIMIT_DEG + declDeg) - SAFE_MARGIN_DEG;
+  const southThresh = Math.max(-FAJR_LIMIT_DEG - declDeg, -DAY_LIMIT_DEG + declDeg) + SAFE_MARGIN_DEG;
   if (latDeg > northThresh) return { projectedFromLat: northThresh };
   if (latDeg < southThresh) return { projectedFromLat: southThresh };
   return null;

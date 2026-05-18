@@ -114,8 +114,14 @@ const FRAG = /* glsl */ `
     // the divergence (see describePolarMethod in src/panel.js).
     const float FAJR_LIMIT = 74.0 * PI / 180.0;                 // Fajr fails beyond this
     const float DAY_LIMIT  = (90.0 + 50.0 / 60.0) * PI / 180.0; // polar night beyond this (apparent horizon)
-    float northThresh = min(FAJR_LIMIT - decl, DAY_LIMIT + decl);
-    float southThresh = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl);
+    // See SAFE_MARGIN_DEG comment in src/prayer.js: pulls the projection
+    // target ~5.5 km inside the cap so Adhan's correctedHourAngle has
+    // numerical room (~5× double-precision tolerance from the cosH=±1
+    // singularity). Mirrored here so the shader's same-longitude
+    // projection lands at exactly the same latitude the panel uses.
+    const float SAFE_MARGIN = 0.05 * PI / 180.0;
+    float northThresh = min(FAJR_LIMIT - decl, DAY_LIMIT + decl) - SAFE_MARGIN;
+    float southThresh = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl) + SAFE_MARGIN;
     // Hard-clamp effLat to the cap edge so the shader matches
     // aqrabProjection() in src/prayer.js exactly (the panel and the
     // globe agree at every pixel, with no transition-band disagreement).
