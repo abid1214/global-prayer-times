@@ -1,7 +1,7 @@
 import * as adhan from "adhan";
 import { classifyPrayer, sunPosition } from "./solar.js";
 import { POLAR_METHODS, getMethod } from "./settings.js";
-import { snapToNearestHighLatCity } from "./highLatCities.js";
+import { snapToNearestHighLatCity, distanceToNearestCityKm } from "./highLatCities.js";
 
 const DEG = Math.PI / 180;
 
@@ -197,6 +197,25 @@ function findRecentValidDate(latDeg, lonDeg, date) {
   return result;
 }
 
+// One console.warn per rounded (lat, lon) per session, when same-
+// longitude projection lands deep in an uninhabited region. The
+// fuqaha generally mean *balad* (populated locality), so a projection
+// into open ocean or interior Antarctica is jurisprudentially weak —
+// "nearest city" mode is closer to the intended ruling there.
+const REMOTE_PROJECTION_WARN_KM = 200;
+const _remoteWarned = new Set();
+function warnIfRemoteProjection(latDeg, lonDeg) {
+  const key = `${latDeg.toFixed(0)}:${lonDeg.toFixed(0)}`;
+  if (_remoteWarned.has(key)) return;
+  _remoteWarned.add(key);
+  const km = distanceToNearestCityKm(latDeg, lonDeg);
+  if (km > REMOTE_PROJECTION_WARN_KM) {
+    console.warn(
+      `[aqrab] same-longitude projection to (${latDeg.toFixed(1)}°, ${lonDeg.toFixed(1)}°) is ~${Math.round(km)} km from the nearest populated place in our table. Consider the "aqrab al-bilād — nearest city" method (Settings → high-latitude method).`
+    );
+  }
+}
+
 // ---------- method 4: niṣf al-layl (middle of night) ----------
 //
 // Spec: Isha at midpoint between Maghrib and Fajr; Fajr from that
@@ -343,6 +362,7 @@ export function getTimesForLocation(latDeg, lonDeg, date = new Date()) {
   switch (method) {
     case POLAR_METHODS.AQRAB_SAME_LON: {
       const t = computeAdhanAt(projection.projectedFromLat, lonDeg, date, params);
+      warnIfRemoteProjection(projection.projectedFromLat, lonDeg);
       return buildResult({
         latDeg, lonDeg, date,
         times: {
