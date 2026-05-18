@@ -142,7 +142,18 @@ export function classifyByClock(times, now) {
   if (Number.isFinite(asr)     && t < asr)     return "dhuhr";
   if (Number.isFinite(maghrib) && t < maghrib) return "asr";
   if (Number.isFinite(isha)    && t < isha)    return "maghrib";
-  return "isha";  // isha until next-day rollover (panel re-fetches daily)
+
+  // After Isha's listed time, walk to shar'ī midnight (canonical
+  // Ja'fari: midpoint of Maghrib → next-day Fajr). The times object
+  // only carries today's data, so we approximate next-day Fajr as
+  // today's Fajr + 24h. The true value drifts by ≤1 min/day from
+  // equation-of-time and declination changes — well below the
+  // 5-minute resolution at which any band edge matters here.
+  if (Number.isFinite(maghrib) && Number.isFinite(fajr)) {
+    const midnight = maghrib + ((fajr + 86400000) - maghrib) / 2;
+    if (t >= midnight) return "none";  // Isha's waqt has ended, pre-next-Fajr
+  }
+  return "isha";  // still in Isha's waqt
 }
 
 // ---------- buildResult ----------

@@ -152,23 +152,33 @@ const FRAG = /* glsl */ `
     float wHor  = smoothstep(APPARENT_HORIZON - B, APPARENT_HORIZON + B, alt);
     float wAsr  = smoothstep(altAsr - B, altAsr + B, alt);
 
-    // Shar'ī midnight = midpoint of the night (sunset → next-day Fajr).
-    // Solved in closed form from each pixel's hour angle so the cutoff is
-    // exact, not the antisolar-meridian approximation. Equation of time is
-    // baked into sunDir already (see sunPosition() in solar.js), so the
-    // subsolar longitude derived here carries the correction implicitly.
-    //   H_set  = sunset hour-angle (alt = 0° going down)
-    //   H_fajr = Fajr hour-angle  (alt = -16° going up next morning)
-    //   H_mid  = π + (H_set - H_fajr) / 2  — earlier than solar midnight
-    //            because the night is asymmetric (sunset at 0°, dawn at -16°).
+    // Shar'ī midnight = midpoint of the night (Maghrib → next-day Fajr),
+    // per the canonical Ja'fari definition. Anchored on Maghrib (-4°,
+    // disappearance of the eastern redness) rather than geometric
+    // sunset (0°): the rest of the app already takes the Ja'fari -4°
+    // reading for Maghrib, so anchoring midnight to it removes the
+    // single place this classifier previously used Sunni-convention
+    // (sunset-anchored) midnight. Solved in closed form from each
+    // pixel's hour angle so the cutoff is exact, not the antisolar-
+    // meridian approximation. Equation of time is baked into sunDir
+    // already (see sunPosition() in solar.js), so the subsolar
+    // longitude derived here carries the correction implicitly.
+    //   H_mag  = Maghrib hour-angle (alt = -4° going down)
+    //   H_fajr = Fajr hour-angle    (alt = -16° going up next morning)
+    //   H_mid  = π + (H_mag - H_fajr) / 2  — earlier than solar midnight
+    //            because the night is asymmetric (Maghrib at -4°, dawn
+    //            at -16°).
     float lonS   = atan(-sd.z, sd.x);
     float Hp     = mod(lonP - lonS, TWO_PI);
     float cosDec = cos(decl);
     float sinDec = sin(decl);
-    float tanEff = sinEff / max(cosEff, 1e-4);
-    float Hset   = acos(clamp(-tanEff * (sinDec / max(cosDec, 1e-4)), -1.0, 1.0));
-    float Hfajr  = acos(clamp((sin(FAJR_ANGLE) - sinEff * sinDec) / max(cosEff * cosDec, 1e-4), -1.0, 1.0));
-    float Hmid   = PI + (Hset - Hfajr) * 0.5;
+    // 1e-4 floor on cos(φ)·cos(δ): protects acos at the geographic
+    // poles and the high-lat regime where both terms approach zero.
+    // Mirrored in solar.js; do not shrink without testing |φ|,|δ| → π/2.
+    float denom  = max(cosEff * cosDec, 1e-4);
+    float Hmag   = acos(clamp((sin(MAGHRIB_ANGLE) - sinEff * sinDec) / denom, -1.0, 1.0));
+    float Hfajr  = acos(clamp((sin(FAJR_ANGLE)    - sinEff * sinDec) / denom, -1.0, 1.0));
+    float Hmid   = PI + (Hmag - Hfajr) * 0.5;
     // Smoothing band ~2.3° in hour angle (~9 min of solar time).
     float pastMidnight = smoothstep(Hmid - 0.04, Hmid + 0.04, Hp);
 
