@@ -51,12 +51,34 @@ const FRAG = /* glsl */ `
     vec3 n = normalize(vNormalLocal);
     vec3 sd = normalize(sunDir);
 
-    float lat = asin(clamp(n.y, -1.0, 1.0));
+    float lat  = asin(clamp(n.y, -1.0, 1.0));
+    float lonP = atan(-n.z, n.x);
 
-    float sinAlt = clamp(dot(sd, n), -1.0, 1.0);
+    // Aqrab al-Bilād: above the latitude where the altitude-based Ja'fari
+    // calculation breaks down, this pixel uses the prayer schedule of its
+    // projection point — the nearest valid latitude on the same longitude.
+    // Two failure modes, both sun-relative:
+    //   • Fajr fails (sun never reaches -16° below horizon) when |φ + δ| > 74°.
+    //   • Polar night (sun never rises) when |φ - δ| > 90°.
+    // The cap is whichever kicks in first per hemisphere.
+    const float FAJR_LIMIT = 1.29154; // 74° in radians (90° - 16°)
+    const float DAY_LIMIT  = 1.5708;  // 90° in radians (no sunrise)
+    float northThresh = min(FAJR_LIMIT - decl, DAY_LIMIT + decl);
+    float southThresh = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl);
+    float overN  = smoothstep(northThresh - 0.04, northThresh + 0.04, lat);
+    float underS = 1.0 - smoothstep(southThresh - 0.04, southThresh + 0.04, lat);
+    float effLat = mix(lat, northThresh, overN);
+    effLat = mix(effLat, southThresh, underS);
+    // Effective normal at (effLat, lonP). Below the cap this equals n; inside
+    // the cap it's the normal of the projection point, so all sun-relative
+    // math below (altitude, asr, midnight) reflects the projected schedule.
+    float cosEff = cos(effLat);
+    vec3 effN = vec3(cosEff * cos(lonP), sin(effLat), -cosEff * sin(lonP));
+
+    float sinAlt = clamp(dot(sd, effN), -1.0, 1.0);
     float alt = asin(sinAlt);
 
-    float diff = lat - decl;
+    float diff = effLat - decl;
     float zenithDiff = clamp(sqrt(diff * diff + 0.0005), 0.0, 1.4);
     float altAsr = atan(1.0 / (1.0 + tan(zenithDiff)));
 
@@ -78,13 +100,11 @@ const FRAG = /* glsl */ `
     //   H_fajr = Fajr hour-angle  (alt = -16° going up next morning)
     //   H_mid  = π + (H_set - H_fajr) / 2  — earlier than solar midnight
     //            because the night is asymmetric (sunset at 0°, dawn at -16°).
-    float lonP   = atan(-n.z, n.x);
     float lonS   = atan(-sd.z, sd.x);
     float Hp     = mod(lonP - lonS, TWO_PI);
-    float cosLat = cos(lat);
     float cosDec = cos(decl);
-    float Hset   = acos(clamp(-tan(lat) * tan(decl), -1.0, 1.0));
-    float Hfajr  = acos(clamp((sin(FAJR_ANGLE) - sin(lat) * sin(decl)) / max(cosLat * cosDec, 1e-4), -1.0, 1.0));
+    float Hset   = acos(clamp(-tan(effLat) * tan(decl), -1.0, 1.0));
+    float Hfajr  = acos(clamp((sin(FAJR_ANGLE) - sin(effLat) * sin(decl)) / max(cosEff * cosDec, 1e-4), -1.0, 1.0));
     float Hmid   = PI + (Hset - Hfajr) * 0.5;
     // Smoothing band ~2.3° in hour angle (~9 min of solar time).
     float pastMidnight = smoothstep(Hmid - 0.04, Hmid + 0.04, Hp);
@@ -129,30 +149,11 @@ const FRAG = /* glsl */ `
     vec3 prayerColor = mix(afternoonColor, morningColor, pastMidnight);
     float coverage = mix(afternoonEnable, morningCoverage, pastMidnight);
 
-    // Uniformly-lit base earth (no day/night terminator).
+    // Uniformly-lit base earth (no day/night terminator). Sampled on the
+    // actual normal so geography is unchanged inside the Aqrab cap.
     vec3 baseCol = sampleEquirect(dayMap, n).rgb * dayBoost + 0.14;
 
-    // Above the latitude where the standard altitude-based Ja'fari
-    // calculation breaks down, fade the prayer overlay out — Aqrab
-    // al-Bilad (the dominant Shia high-lat ruling) projects the schedule
-    // onto a single nearest-locality point, which doesn't have a clean
-    // spatial coloring. Two failure modes, both sun-relative:
-    //   • Fajr fails (sun never reaches -16° below horizon) when
-    //     |φ + δ| > 74° = 90° - 16°.
-    //   • Polar night (sun never rises) when |φ - δ| > 90° — Adhan can't
-    //     produce a Maghrib / sunrise here either.
-    // The cap is whichever kicks in first per hemisphere, so e.g. at the
-    // June solstice the Arctic cap is Fajr-driven (~50.5°N) while the
-    // Antarctic cap is polar-night-driven (~66.5°S).
-    const float FAJR_LIMIT = 1.29154; // 74° in radians (90° - 16°)
-    const float DAY_LIMIT  = 1.5708;  // 90° in radians (no sunrise)
-    float northThresh = min(FAJR_LIMIT - decl, DAY_LIMIT + decl);
-    float southThresh = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl);
-    float fadeNorth = smoothstep(northThresh - 0.04, northThresh + 0.04, lat);
-    float fadeSouth = 1.0 - smoothstep(southThresh - 0.04, southThresh + 0.04, lat);
-    float poleFade = 1.0 - max(fadeNorth, fadeSouth);
-
-    float strength = coverage * prayerOpacity * prayerEnabled * poleFade;
+    float strength = coverage * prayerOpacity * prayerEnabled;
     vec3 tinted = mix(baseCol, prayerColor, strength * 0.92);
     tinted += prayerColor * strength * 0.40;
 
