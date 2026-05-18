@@ -13,6 +13,7 @@ const panel   = document.getElementById("settingsPanel");
 const openBtn = document.getElementById("settingsBtn");
 const closeBtn = document.getElementById("settingsClose");
 const backdrop = document.getElementById("settingsBackdrop");
+const handle  = document.getElementById("settingsHandle");
 const radios  = document.querySelectorAll('input[name="polarMethod"]');
 
 function open() {
@@ -38,6 +39,37 @@ function onKey(e) {
 openBtn.addEventListener("click", open);
 closeBtn.addEventListener("click", close);
 backdrop.addEventListener("click", close);
+
+// Swipe-down to dismiss on the mobile bottom-sheet variant. Mirrors
+// the prayer-times panel handle in src/panel.js so the two surfaces
+// share the same gesture. Handle is display:none on desktop, so the
+// listeners are inert there.
+let drag = null;
+handle.addEventListener("pointerdown", (e) => {
+  drag = { startY: e.clientY, dy: 0 };
+  panel.classList.add("dragging");
+  handle.setPointerCapture(e.pointerId);
+});
+handle.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  drag.dy = Math.max(0, e.clientY - drag.startY);
+  panel.style.transform = `translateY(${drag.dy}px)`;
+});
+function endDrag(commit) {
+  if (!drag) return;
+  panel.classList.remove("dragging");
+  if (commit && drag.dy > 80) {
+    close();
+    // Reset inline transform after the close transition completes so
+    // a subsequent open doesn't start from the dragged position.
+    setTimeout(() => { panel.style.transform = ""; }, 230);
+  } else {
+    panel.style.transform = "";
+  }
+  drag = null;
+}
+handle.addEventListener("pointerup",     () => endDrag(true));
+handle.addEventListener("pointercancel", () => endDrag(false));
 
 // Initialize the radio to whatever's persisted, then write back any
 // user selection so the next prayer.js getMethod() reads the new

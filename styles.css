@@ -448,6 +448,11 @@ html, body {
   overflow-y: auto;
 }
 #settingsOverlay.open #settingsPanel { transform: translateX(0); }
+#settingsPanel.dragging { transition: none; }
+
+/* Hidden on desktop; only the bottom-sheet variant on mobile shows
+   the handle. */
+#settingsHandle { display: none; }
 
 #settingsPanel header {
   display: flex;
@@ -847,6 +852,61 @@ html, body {
 @media (max-width: 480px) {
   #legend { padding: 10px 12px; }
   #panel h2 { font-size: 15px; }
+}
+
+/* Settings bottom-sheet on mobile — mirrors the prayer-times panel so
+   both surfaces share the same dismiss gesture (swipe-down on the
+   handle, tap backdrop, or close button). */
+@media (max-width: 768px) {
+  #settingsPanel {
+    top: auto;
+    right: 0;
+    left: 0;
+    bottom: 0;
+    height: auto;
+    max-height: 80vh;
+    width: 100%;
+    max-width: 100%;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 14px 14px 0 0;
+    transform: translateY(100%);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    transition: transform 0.22s ease;
+    will-change: transform;
+  }
+  #settingsOverlay.open #settingsPanel { transform: translateY(0); }
+  #settingsHandle {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80px;          /* wider hit target than visual bar */
+    height: 18px;         /* taller hit target than visual bar */
+    background: transparent;
+    touch-action: none;
+    cursor: grab;
+    z-index: 3;           /* above the sticky header */
+  }
+  #settingsHandle::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--muted);
+    opacity: 0.55;
+  }
+  #settingsHandle:active { cursor: grabbing; }
+  /* Push the sticky header below the handle so the handle isn't
+     occluded when the user scrolls inside the sheet. */
+  #settingsPanel header {
+    padding-top: 18px;
+  }
 }
 
 @media (pointer: coarse) {
