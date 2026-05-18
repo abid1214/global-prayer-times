@@ -27,16 +27,21 @@ const PRAYER_META = [
 
 // Aqrab al-Bilad threshold is sun-relative. Two failure modes for the
 // standard Ja'fari calculation, both depending on the current solar
-// declination δ:
-//   • Fajr fails (sun never reaches -16° below horizon) when |φ + δ| > 74°.
-//   • Polar night (sun never rises above 0°) when |φ - δ| > 90° — Adhan
-//     can also miss Maghrib / sunrise in this regime.
-// Project to the closer of the two thresholds per hemisphere so we cover
-// both. Same threshold math is mirrored in the fragment shader, where
-// every cap pixel is rendered with its projection point's schedule via
-// an effective-latitude clamp (see earthMaterial.js).
+// declination δ. See earthMaterial.js for the full derivation; in
+// short:
+//   • Fajr fails (sun never reaches -16°) when |φ + δ| > 74° = 90° - 16°.
+//     Adhan uses -16° geometric (no refraction), so 74° matches exactly.
+//   • Polar night (sun never crosses apparent horizon) when |φ - δ| >
+//     90.833° = 90° + 50'. The 50' offset matches Adhan's sunrise/
+//     sunset convention (refraction + solar semi-diameter). Without
+//     it, the cap kicks in ~14 days/year earlier at φ ≈ 68°N than
+//     Adhan actually returns NaN.
+// Project to the closer of the two thresholds per hemisphere. Same
+// threshold math is mirrored in the fragment shader, where every cap
+// pixel is rendered with its projection point's schedule via an
+// effective-latitude clamp.
 const FAJR_LIMIT_DEG = 74;
-const DAY_LIMIT_DEG = 90;
+const DAY_LIMIT_DEG = 90 + 50 / 60;  // 90.8333…
 
 export function aqrabProjection(latDeg, date = new Date()) {
   const { declination } = sunPosition(date);

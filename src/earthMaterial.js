@@ -39,6 +39,13 @@ const FRAG = /* glsl */ `
   const float FAJR_ANGLE = -16.0 * PI / 180.0;
   const float MAGHRIB_ANGLE = -4.0 * PI / 180.0;
   const float ISHA_ANGLE = -14.0 * PI / 180.0;
+  // Apparent horizon = -50' = -0.833°, matching Adhan.js's sunrise/sunset
+  // convention (atmospheric refraction ~34' + solar semi-diameter ~16').
+  // Adhan applies this offset ONLY to sunrise/sunset; Fajr (-16°),
+  // Maghrib (-4°), and Isha (-14°) are taken at face value (refraction
+  // is negligible at those depths). Mirrored in src/solar.js's
+  // APPARENT_HORIZON constant.
+  const float APPARENT_HORIZON = -50.0 / 60.0 * PI / 180.0;
 
   vec4 sampleEquirect(sampler2D tex, vec3 dir) {
     float lat = asin(clamp(dir.y, -1.0, 1.0));
@@ -57,10 +64,42 @@ const FRAG = /* glsl */ `
     // Aqrab al-Bilād: above the latitude where the altitude-based Ja'fari
     // calculation breaks down, this pixel uses the prayer schedule of its
     // projection point — the nearest valid latitude on the same longitude.
-    // Two failure modes, both sun-relative:
-    //   • Fajr fails (sun never reaches -16° below horizon) when |φ + δ| > 74°.
-    //   • Polar night (sun never rises) when |φ - δ| > 90°.
-    // The cap is whichever kicks in first per hemisphere.
+    //
+    // ---- Derivation of the two failure modes ----
+    //
+    // Sun altitude at hour angle H, latitude φ, declination δ:
+    //   sin(α) = sin(φ)·sin(δ) + cos(φ)·cos(δ)·cos(H)
+    //
+    // (a) Fajr-cap: sun never reaches the Fajr threshold (-16°).
+    //   α_min occurs at H = π (solar antimeridian):
+    //     sin(α_min) = sin(φ)·sin(δ) - cos(φ)·cos(δ) = -cos(φ + δ)
+    //     α_min     = -(π/2 - |φ + δ|)  = |φ + δ| - π/2
+    //   Sun reaches -16° iff α_min ≤ -16°, i.e. |φ + δ| ≤ 90° - 16° = 74°.
+    //   So Fajr fails when |φ + δ| > 74°. Adhan.js uses -16° geometric
+    //   (no refraction), so 74° matches Adhan exactly.
+    //
+    // (b) Polar-night cap: sun never crosses the (apparent) horizon.
+    //   α_max occurs at H = 0 (transit):
+    //     sin(α_max) = cos(φ - δ)
+    //     α_max     = π/2 - |φ - δ|
+    //   Adhan.js defines sunrise/sunset at α = -0.833° = -50' (atmospheric
+    //   refraction ~34' + solar semi-diameter ~16'), so the sun crosses
+    //   the horizon iff α_max ≥ -0.833°, i.e. |φ - δ| ≤ 90° + 50' =
+    //   90.833°. So polar night kicks in when |φ - δ| > 90.833°.
+    //
+    //   Using the geometric horizon (0°) instead — as we used to —
+    //   triggers the cap ~50 arcminutes too early in latitude, which at
+    //   φ ≈ 68°N means ~7 days too early in autumn and ~7 days too late
+    //   in spring (≈ 14 days/year disagreement with what Adhan actually
+    //   returns). See refraction audit in commit message.
+    //
+    // The cap is whichever kicks in first per hemisphere. Seasonal tilt
+    // of the cap visualization follows from the ±δ terms: as decl
+    // swings ±23.4° over the year, the north cap threshold sweeps
+    // between min(74-23.4, 90.833-23.4) = 50.6°N (summer, Fajr-cap
+    // dominates) and min(74+23.4, 90.833+23.4) = 97.4° clipped to the
+    // polar-night-dominated regime → effective 67.4°N (winter), with
+    // the dominant mode switching around |δ| ≈ 8°.
     //
     // Intentionally NOT branching on the user's polar-method setting (see
     // POLAR_METHODS in src/settings.js): the visual cap always uses
@@ -73,8 +112,8 @@ const FRAG = /* glsl */ `
     // method-specific approximation that lies, the shader sticks with
     // same-longitude projection and the panel's descriptor line surfaces
     // the divergence (see describePolarMethod in src/panel.js).
-    const float FAJR_LIMIT = 74.0 * PI / 180.0; // 90° - 16° (Fajr fails beyond this)
-    const float DAY_LIMIT  = 0.5 * PI;          // 90° (polar night beyond this)
+    const float FAJR_LIMIT = 74.0 * PI / 180.0;                 // Fajr fails beyond this
+    const float DAY_LIMIT  = (90.0 + 50.0 / 60.0) * PI / 180.0; // polar night beyond this (apparent horizon)
     float northThresh = min(FAJR_LIMIT - decl, DAY_LIMIT + decl);
     float southThresh = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl);
     // Hard-clamp effLat to the cap edge so the shader matches
@@ -104,7 +143,7 @@ const FRAG = /* glsl */ `
     float wFajr = smoothstep(FAJR_ANGLE - B, FAJR_ANGLE + B, alt);
     float wIsha = smoothstep(ISHA_ANGLE - B, ISHA_ANGLE + B, alt);
     float wMag  = smoothstep(MAGHRIB_ANGLE - B, MAGHRIB_ANGLE + B, alt);
-    float wHor  = smoothstep(-B, B, alt);
+    float wHor  = smoothstep(APPARENT_HORIZON - B, APPARENT_HORIZON + B, alt);
     float wAsr  = smoothstep(altAsr - B, altAsr + B, alt);
 
     // Shar'ī midnight = midpoint of the night (sunset → next-day Fajr).

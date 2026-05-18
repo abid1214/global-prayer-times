@@ -83,6 +83,13 @@ export function vec3ToLatLon(v) {
 const FAJR = -16 * DEG;
 const MAGHRIB = -4 * DEG;
 const ISHA = -14 * DEG;
+// Apparent horizon = -50' = -0.833°, matching Adhan.js's sunrise/sunset
+// convention (atmospheric refraction ~34' + solar semi-diameter ~16').
+// Adhan applies this offset ONLY to sunrise/sunset; Fajr (-16°), Maghrib
+// (-4°), Isha (-14°), and Asr are taken at face value (refraction is
+// negligible at those depths). See src/earthMaterial.js for the
+// shader-side mirror.
+const APPARENT_HORIZON = (-50 / 60) * DEG;
 
 export function classifyPrayer(latRad, lonRad, date) {
   const { sunDir, declination, subsolarLon } = sunPosition(date);
@@ -109,7 +116,7 @@ export function classifyPrayer(latRad, lonRad, date) {
   const zenithDiff = Math.min(Math.abs(latRad - declination), 1.4);
   const altAsr = Math.atan(1 / (1 + Math.tan(zenithDiff)));
 
-  if (alt > 0) {
+  if (alt > APPARENT_HORIZON) {
     if (pastMidnight) return "none"; // post-sunrise, pre-Dhuhr
     return alt >= altAsr ? "dhuhr" : "asr";
   }
