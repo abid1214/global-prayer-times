@@ -1,5 +1,6 @@
 import * as adhan from "adhan";
 import { getTimesForLocation, PRAYER_META } from "./prayer.js";
+import { subscribe as subscribeMethod } from "./settings.js";
 
 const panel = document.getElementById("panel");
 const panelLocation = document.getElementById("panelLocation");
@@ -17,6 +18,14 @@ const peekCur = panelPeek.querySelector(".peekCur");
 
 let dismissed = false;
 let lastLocation = null;
+// Last (lat, lon, date, tz) tuple used for render. Re-render on
+// method change reuses this rather than re-resolving timezone (which
+// is async and would flicker). Cleared on dismiss.
+let lastRender = null;
+// Active settings subscription. Held only while the panel is open
+// so closed-panel cycles don't accumulate dead callbacks. settings.js's
+// subscribe() returns an unsubscribe handle.
+let methodUnsub = null;
 
 const isMobile = () => window.matchMedia("(max-width: 768px)").matches;
 
@@ -57,6 +66,8 @@ function cancelPendingDismiss() {
 
 function dismissPanel() {
   if (panel.hidden) return;
+  if (methodUnsub) { methodUnsub(); methodUnsub = null; }
+  lastRender = null;
   if (!isMobile()) {
     panel.hidden = true;
     return;
@@ -324,6 +335,14 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
   panelTimesBody.innerHTML = "";
   panelQibla.textContent = "";
 
+  // Subscribe to method changes for live re-render. Replace any
+  // existing subscription (in case the user picks a new location
+  // without dismissing). Unsubscribed in dismissPanel.
+  if (methodUnsub) methodUnsub();
+  methodUnsub = subscribeMethod(() => {
+    if (lastRender) render(lastRender.lat, lastRender.lon, lastRender.date, lastRender.tz);
+  });
+
   // Resolve tz, then render. If tz-lookup is slow, we render with the
   // approximation immediately, then upgrade once it loads.
   const fastTz = approxTzFromLon(lon);
@@ -335,6 +354,7 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
 }
 
 function render(lat, lon, date, tz) {
+  lastRender = { lat, lon, date, tz };
   const times = getTimesForLocation(lat, lon, date);
 
   let dateLine = `${fmtDateLabel(date, tz)} · ${tzLabel(tz, date)}`;

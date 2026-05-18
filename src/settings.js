@@ -29,6 +29,15 @@ const subscribers = new Set();
 let cached = null;
 
 function load() {
+  // URL ?m= takes precedence at load only — read once, never written
+  // back. Lets someone share a "see this view with method X" link
+  // without polluting the recipient's persisted preference; their
+  // next change via the gear writes to localStorage and is sticky on
+  // subsequent visits without ?m=.
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("m");
+    if (fromUrl && METHOD_ORDER.includes(fromUrl)) return fromUrl;
+  } catch (_) {}
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored && METHOD_ORDER.includes(stored)) return stored;
