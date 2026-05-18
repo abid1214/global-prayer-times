@@ -28,7 +28,9 @@ const PRAYER_META = [
 //   • Polar night (sun never rises above 0°) when |φ - δ| > 90° — Adhan
 //     can also miss Maghrib / sunrise in this regime.
 // Project to the closer of the two thresholds per hemisphere so we cover
-// both. Same logic mirrored in the fragment shader's poleFade.
+// both. Same threshold math is mirrored in the fragment shader, where
+// every cap pixel is rendered with its projection point's schedule via
+// an effective-latitude clamp (see earthMaterial.js).
 const FAJR_LIMIT_DEG = 74;
 const DAY_LIMIT_DEG = 90;
 

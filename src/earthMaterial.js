@@ -65,8 +65,13 @@ const FRAG = /* glsl */ `
     const float DAY_LIMIT  = 1.5708;  // 90° in radians (no sunrise)
     float northThresh = min(FAJR_LIMIT - decl, DAY_LIMIT + decl);
     float southThresh = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl);
-    float overN  = smoothstep(northThresh - 0.04, northThresh + 0.04, lat);
-    float underS = 1.0 - smoothstep(southThresh - 0.04, southThresh + 0.04, lat);
+    // One-sided easing: effLat == lat outside the cap (matches the JS-side
+    // aqrabProjection in src/prayer.js, which only clamps once lat crosses
+    // the threshold), then eases in over ~4.5° inside the cap. Smoothstep
+    // starts with zero derivative, so effLat's derivative is continuous at
+    // the threshold even though the math switches sides there.
+    float overN  = smoothstep(northThresh, northThresh + 0.08, lat);
+    float underS = 1.0 - smoothstep(southThresh - 0.08, southThresh, lat);
     float effLat = mix(lat, northThresh, overN);
     effLat = mix(effLat, southThresh, underS);
     // Effective normal at (effLat, lonP). Below the cap this equals n; inside
