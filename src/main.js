@@ -6,7 +6,7 @@ import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { sunPosition, latLonToVec3 } from "./solar.js";
 import { createEarthMaterial } from "./earthMaterial.js";
 import { showPanelForLocation } from "./panel.js";
-import { getTimesForLocation } from "./prayer.js";
+import { aqrabProjection } from "./prayer.js";
 import { initSearch } from "./search.js";
 import { GlobeControls } from "./globeControls.js";
 
@@ -457,9 +457,12 @@ function selectLocation(latDeg, lonDeg, name) {
   setPin(latRad, lonRad);
   setQiblaFrom(latDeg, lonDeg);
   const date = effectiveNow();
-  const times = getTimesForLocation(latDeg, lonDeg, date);
-  if (times.aqrab) {
-    setProjectionViz(latDeg, lonDeg, times.aqrab.projectedFromLat);
+  // Cheap projection-only check — avoids re-running the full Adhan
+  // computation here just to read the threshold; the panel will call
+  // getTimesForLocation for the actual prayer times.
+  const aqrab = aqrabProjection(latDeg, date);
+  if (aqrab) {
+    setProjectionViz(latDeg, lonDeg, aqrab.projectedFromLat);
   } else {
     clearProjectionViz();
   }
@@ -680,9 +683,11 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight, false);
-  if (qiblaLine) {
-    qiblaLine.material.resolution.set(window.innerWidth, window.innerHeight);
-  }
+  // Line2's pixel width depends on the resolution uniform — without these
+  // updates, both arcs would render with stale widths until the user
+  // selected a new location and the lines were rebuilt.
+  if (qiblaLine) qiblaLine.material.resolution.set(window.innerWidth, window.innerHeight);
+  if (projectionLine) projectionLine.material.resolution.set(window.innerWidth, window.innerHeight);
   markDirty();
 });
 
