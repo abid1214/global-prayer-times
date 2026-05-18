@@ -65,20 +65,19 @@ const FRAG = /* glsl */ `
     const float DAY_LIMIT  = 1.5708;  // 90° in radians (no sunrise)
     float northThresh = min(FAJR_LIMIT - decl, DAY_LIMIT + decl);
     float southThresh = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl);
-    // Hard-clamp inside the cap (effLat = threshold for any lat past it,
-    // matching aqrabProjection() in src/prayer.js so the globe and the
-    // side panel agree). The smoothstep band sits *just outside* the
-    // threshold so the visual transition is continuous; smoothstep's
-    // zero-derivative endpoints keep effLat C¹ at both ends of the band.
-    float overN  = smoothstep(northThresh - 0.08, northThresh, lat);
-    float underS = 1.0 - smoothstep(southThresh, southThresh + 0.08, lat);
-    float effLat = mix(lat, northThresh, overN);
-    effLat = mix(effLat, southThresh, underS);
+    // Hard-clamp effLat to the cap edge so the shader matches
+    // aqrabProjection() in src/prayer.js exactly (the panel and the
+    // globe agree at every pixel, with no transition-band disagreement).
+    // effLat is C⁰ continuous at the threshold but its derivative
+    // jumps; the ~5° smoothstep bands on each prayer window below mask
+    // that kink in the rendered band shapes.
+    float effLat = clamp(lat, southThresh, northThresh);
     // Effective normal at (effLat, lonP). Below the cap this equals n; inside
     // the cap it's the normal of the projection point, so all sun-relative
     // math below (altitude, asr, midnight) reflects the projected schedule.
     float cosEff = cos(effLat);
-    vec3 effN = vec3(cosEff * cos(lonP), sin(effLat), -cosEff * sin(lonP));
+    float sinEff = sin(effLat);
+    vec3 effN = vec3(cosEff * cos(lonP), sinEff, -cosEff * sin(lonP));
 
     float sinAlt = clamp(dot(sd, effN), -1.0, 1.0);
     float alt = asin(sinAlt);
@@ -108,8 +107,10 @@ const FRAG = /* glsl */ `
     float lonS   = atan(-sd.z, sd.x);
     float Hp     = mod(lonP - lonS, TWO_PI);
     float cosDec = cos(decl);
-    float Hset   = acos(clamp(-tan(effLat) * tan(decl), -1.0, 1.0));
-    float Hfajr  = acos(clamp((sin(FAJR_ANGLE) - sin(effLat) * sin(decl)) / max(cosEff * cosDec, 1e-4), -1.0, 1.0));
+    float sinDec = sin(decl);
+    float tanEff = sinEff / max(cosEff, 1e-4);
+    float Hset   = acos(clamp(-tanEff * (sinDec / max(cosDec, 1e-4)), -1.0, 1.0));
+    float Hfajr  = acos(clamp((sin(FAJR_ANGLE) - sinEff * sinDec) / max(cosEff * cosDec, 1e-4), -1.0, 1.0));
     float Hmid   = PI + (Hset - Hfajr) * 0.5;
     // Smoothing band ~2.3° in hour angle (~9 min of solar time).
     float pastMidnight = smoothstep(Hmid - 0.04, Hmid + 0.04, Hp);
