@@ -356,6 +356,11 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
 function render(lat, lon, date, tz) {
   lastRender = { lat, lon, date, tz };
   const times = getTimesForLocation(lat, lon, date);
+  // Keep lastLocation.currentPrayer in lockstep with the just-rendered
+  // band so the peek bar's "Now:" label stays accurate after a method
+  // change or tz refinement. Without this, dismissing the panel after
+  // switching method would show the band from panel-open time.
+  if (lastLocation) lastLocation.currentPrayer = times.currentPrayer;
 
   let dateLine = `${fmtDateLabel(date, tz)} · ${tzLabel(tz, date)}`;
   const method = describePolarMethod(times.polarMethod, tz, date);

@@ -1,11 +1,23 @@
 // Locks in the same-longitude-only cap visualization decision (see
-// the docblock in src/earthMaterial.js). For the two methods where
-// the panel and the shader share semantics — AQRAB_SAME_LON and
-// AQRAB_NEAREST_CITY — the clock-based and sun-altitude classifiers
-// must agree at the reference (projected) location. For the other
-// four methods the divergence is by design; this fixture documents
-// and exercises that divergence but does not assert any specific
-// band.
+// the docblock in src/earthMaterial.js) by way of a classifier-vs-
+// classifier invariant at the schedule's reference point.
+//
+// AQRAB_SAME_LON and AQRAB_NEAREST_CITY are the two methods where
+// the panel uses the sun-altitude classifier (at the projected /
+// snapped reference point); the clock-based classifier walked over
+// the same times must agree with it. If anyone changes how either
+// classifier computes a band, this asserts they still match where
+// they're supposed to. (Note: this is a classifier-vs-classifier
+// check at the reference point, NOT a panel-vs-shader check —
+// the shader is always same-longitude regardless of method per
+// the earthMaterial.js docblock, so nearest-city's panel times
+// can still diverge from the visual cap; that's documented and
+// expected.)
+//
+// For the four clock-mode methods (AQRAB_AL_AWQAT / MIDNIGHT /
+// SEVENTH / ANGLE_REDUCED) the two classifiers are designed to
+// disagree — clock-mode is the whole point — so the fixture just
+// exercises both paths without asserting agreement.
 //
 // Run by opening tests/classifierAgreement.html in a browser. No
 // test runner needed; results print to the page.

@@ -107,22 +107,25 @@ function anchorMaghrib(times) {
 }
 
 // ---------- clock-based "Now in" classifier ----------
-// Used for the side-panel "Now in" indicator under methods 2-5
-// (AQRAB_AL_AWQAT / MIDNIGHT / SEVENTH / ANGLE_REDUCED). For these
-// methods the band timing no longer matches "sun is at angle X below
-// horizon" — bands come from either a different day (aqrab al-awqāt)
-// or from a synthesized midnight/seventh split that doesn't
-// correspond to any sun altitude at this location. The sun-altitude
+// Used for the side-panel "Now in" indicator under the four
+// clock-mode methods: AQRAB_AL_AWQAT, MIDNIGHT, SEVENTH, and
+// ANGLE_REDUCED. For these the band timing no longer matches
+// "sun is at angle X below horizon" — bands come from either a
+// different day (aqrab al-awqāt) or from a synthesized
+// midnight/seventh/angle-reduced split that doesn't correspond
+// to any sun altitude at this location. The sun-altitude
 // classifier in solar.js would produce e.g. "Dhuhr" during polar
-// night under aqrab al-awqāt, which is the kind of bug that erodes
-// user trust.
+// night under aqrab al-awqāt, which is the kind of bug that
+// erodes user trust. AQRAB_SAME_LON and AQRAB_NEAREST_CITY
+// continue to use the sun-altitude classifier at the projected /
+// snapped reference point.
 //
 // NOTE: this is intentionally NOT mirrored in the fragment shader.
 // The visual cap always renders via same-longitude projection
 // regardless of method (see the docblock in earthMaterial.js). For
-// methods 2-5 the bands inside the cap will therefore disagree with
-// the side panel — the panel's descriptor line in panel.js surfaces
-// the divergence.
+// the four clock-mode methods the bands inside the cap will
+// therefore disagree with the side panel — the panel's descriptor
+// line in panel.js surfaces the divergence.
 export function classifyByClock(times, now, opts = {}) {
   const t = now.getTime();
   // opts.crossDay = true: project each prayer time onto the same UTC

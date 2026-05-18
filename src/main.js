@@ -466,7 +466,7 @@ let _lastSelection = null;
 
 // Where the projection pin/arc should sit for the current method.
 // Returns null when no pin should be drawn (location outside the cap,
-// or methods 2-5 which have no spatial schedule source).
+// or any of the four methods with no spatial schedule source).
 //   • SAME_LON     → pin at same-longitude projection
 //   • NEAREST_CITY → pin at the snapped city (falls back to SAME_LON
 //                    when no city is in window)
@@ -486,7 +486,9 @@ function pinSourceForMethod(latDeg, lonDeg, date) {
       ? { targetLat: city.lat, targetLon: city.lon }
       : { targetLat: aqrab.projectedFromLat, targetLon: lonDeg };
   }
-  return null; // methods 2-5
+  // AQRAB_AL_AWQAT, MIDNIGHT, SEVENTH, ANGLE_REDUCED — no spatial
+  // schedule source to point at.
+  return null;
 }
 
 function refreshProjectionForCurrentSelection() {
