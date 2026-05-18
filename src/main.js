@@ -6,6 +6,7 @@ import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { sunPosition, latLonToVec3 } from "./solar.js";
 import { createEarthMaterial } from "./earthMaterial.js";
 import { showPanelForLocation } from "./panel.js";
+import { getTimesForLocation } from "./prayer.js";
 import { initSearch } from "./search.js";
 import { GlobeControls } from "./globeControls.js";
 
@@ -66,7 +67,7 @@ const camera = new THREE.PerspectiveCamera(
 //
 // If a ?lat=&lon= link was shared, point at that location instead;
 // the +12 h trick is moot for shared views.
-const INITIAL_DISTANCE = 3.6;
+const INITIAL_DISTANCE = 5.5;
 const _initialView = parseUrlLocation();
 {
   let dir;
@@ -167,6 +168,8 @@ let earthMaterial;
 let earthMesh;
 let pinMesh = null;
 let qiblaLine = null;
+let projectionPin = null;
+let projectionLine = null;
 let sunGroup = null;
 const SUN_DISTANCE = 60;
 
@@ -210,6 +213,10 @@ const SUN_DISTANCE = 60;
   pinMesh.visible = false;
   earthGroup.add(pinMesh);
 
+  projectionPin = makeProjectionPin();
+  projectionPin.visible = false;
+  earthGroup.add(projectionPin);
+
   const meccaPin = makeMeccaPin();
   const m = latLonToVec3((MECCA_LAT * Math.PI) / 180, (MECCA_LON * Math.PI) / 180);
   meccaPin.position.set(m[0] * 1.006, m[1] * 1.006, m[2] * 1.006);
@@ -228,12 +235,7 @@ const SUN_DISTANCE = 60;
   // location now that earthMesh + controls are ready. Camera was already
   // pointed at it by the setup above, so no flyTo is needed.
   if (_initialView) {
-    setPin(_initialView.latRad, _initialView.lonRad);
-    setQiblaFrom(_initialView.latDeg, _initialView.lonDeg);
-    showPanelForLocation(
-      { lat: _initialView.latDeg, lon: _initialView.lonDeg, name: _initialView.name },
-      effectiveNow()
-    );
+    selectLocation(_initialView.latDeg, _initialView.lonDeg, _initialView.name);
   }
 })();
 
@@ -309,6 +311,22 @@ function makeSun() {
   return group;
 }
 
+function makeProjectionPin() {
+  // Teal — same shape as the click pin but a distinct hue, so when the
+  // user taps a polar location both pins are visible and clearly related.
+  const g = new THREE.SphereGeometry(0.011, 16, 12);
+  const m = new THREE.MeshBasicMaterial({ color: 0x6cd0c4 });
+  const mesh = new THREE.Mesh(g, m);
+  const glowGeo = new THREE.SphereGeometry(0.020, 16, 12);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0x6cd0c4,
+    transparent: true,
+    opacity: 0.45,
+  });
+  mesh.add(new THREE.Mesh(glowGeo, glowMat));
+  return mesh;
+}
+
 function setPin(latRad, lonRad) {
   if (!pinMesh) return;
   const v = latLonToVec3(latRad, lonRad);
@@ -362,6 +380,90 @@ function setQiblaFrom(latDeg, lonDeg) {
   qiblaLine.computeLineDistances();
   earthGroup.add(qiblaLine);
   markDirty();
+}
+
+// Show a teal pin + great-circle arc at the Aqrab al-Bilād projection
+// point when the user taps a high-latitude location. The projection
+// preserves longitude and clamps the latitude to the threshold where the
+// standard calculation works (see prayer.js), so the arc lies along the
+// meridian. The pin shares its glow with the panel's "projected from N°"
+// note — a visual cue that the times shown aren't computed at the actual
+// tapped latitude.
+function clearProjectionViz() {
+  if (projectionPin) projectionPin.visible = false;
+  if (projectionLine) {
+    earthGroup.remove(projectionLine);
+    projectionLine.geometry.dispose();
+    projectionLine.material.dispose();
+    projectionLine = null;
+  }
+}
+
+function setProjectionViz(actualLatDeg, lonDeg, projectedLatDeg) {
+  if (!earthGroup || !projectionPin) return;
+  const latRadProj = (projectedLatDeg * Math.PI) / 180;
+  const lonRad = (lonDeg * Math.PI) / 180;
+  const v = latLonToVec3(latRadProj, lonRad);
+  projectionPin.position.set(v[0] * 1.005, v[1] * 1.005, v[2] * 1.005);
+  projectionPin.visible = true;
+
+  if (projectionLine) {
+    earthGroup.remove(projectionLine);
+    projectionLine.geometry.dispose();
+    projectionLine.material.dispose();
+    projectionLine = null;
+  }
+  const A = new THREE.Vector3(...latLonToVec3((actualLatDeg * Math.PI) / 180, lonRad));
+  const B = new THREE.Vector3(...latLonToVec3(latRadProj, lonRad));
+  if (A.distanceTo(B) < 0.001) return;
+  const omega = Math.acos(Math.max(-1, Math.min(1, A.dot(B))));
+  const sinOmega = Math.sin(omega);
+  const N = 32;
+  const positions = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const a = Math.sin((1 - t) * omega) / sinOmega;
+    const b = Math.sin(t * omega) / sinOmega;
+    const p = new THREE.Vector3()
+      .copy(A).multiplyScalar(a)
+      .addScaledVector(B, b)
+      .normalize()
+      .multiplyScalar(1.014);
+    positions.push(p.x, p.y, p.z);
+  }
+  const geom = new LineGeometry();
+  geom.setPositions(positions);
+  const mat = new LineMaterial({
+    color: 0x6cd0c4,
+    linewidth: 2.0,
+    transparent: true,
+    opacity: 0.9,
+    depthTest: false,
+    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+  });
+  projectionLine = new Line2(geom, mat);
+  projectionLine.renderOrder = 2;
+  projectionLine.computeLineDistances();
+  earthGroup.add(projectionLine);
+  markDirty();
+}
+
+// Single entry point for "user picked a location": pin, qibla, panel,
+// and any Aqrab al-Bilād projection viz. Centralises so click and search
+// stay in lockstep.
+function selectLocation(latDeg, lonDeg, name) {
+  const latRad = (latDeg * Math.PI) / 180;
+  const lonRad = (lonDeg * Math.PI) / 180;
+  setPin(latRad, lonRad);
+  setQiblaFrom(latDeg, lonDeg);
+  const date = effectiveNow();
+  const times = getTimesForLocation(latDeg, lonDeg, date);
+  if (times.aqrab) {
+    setProjectionViz(latDeg, lonDeg, times.aqrab.projectedFromLat);
+  } else {
+    clearProjectionViz();
+  }
+  showPanelForLocation({ lat: latDeg, lon: lonDeg, name }, date);
 }
 
 // ---- ticking ----
@@ -611,19 +713,13 @@ canvas.addEventListener("pointerup", (e) => {
   const lon = Math.atan2(-local.z, local.x);
   const latDeg = (lat * 180) / Math.PI;
   const lonDeg = (lon * 180) / Math.PI;
-  setPin(lat, lon);
-  setQiblaFrom(latDeg, lonDeg);
-  showPanelForLocation({ lat: latDeg, lon: lonDeg, name: null }, effectiveNow());
+  selectLocation(latDeg, lonDeg, null);
 });
 
 // ---- search ----
 initSearch(({ lat, lon, name }) => {
-  const latRad = (lat * Math.PI) / 180;
-  const lonRad = (lon * Math.PI) / 180;
-  setPin(latRad, lonRad);
-  setQiblaFrom(lat, lon);
-  showPanelForLocation({ lat, lon, name }, effectiveNow());
-  flyTo(latRad, lonRad);
+  selectLocation(lat, lon, name);
+  flyTo((lat * Math.PI) / 180, (lon * Math.PI) / 180);
 });
 
 function flyTo(latRad, lonRad) {
