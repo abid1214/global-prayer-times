@@ -61,6 +61,18 @@ const FRAG = /* glsl */ `
     //   • Fajr fails (sun never reaches -16° below horizon) when |φ + δ| > 74°.
     //   • Polar night (sun never rises) when |φ - δ| > 90°.
     // The cap is whichever kicks in first per hemisphere.
+    //
+    // Intentionally NOT branching on the user's polar-method setting (see
+    // POLAR_METHODS in src/settings.js): the visual cap always uses
+    // same-longitude projection regardless of which method drives the
+    // side-panel times. The other methods (nearest-city, aqrab al-awqāt,
+    // midnight, seventh, angle-reduced) don't have a clean per-pixel
+    // shader equivalent — nearest-city would need a city table in GLSL,
+    // aqrab al-awqāt's historical date is per-location, midnight/seventh
+    // depend on the pixel's own night length. Rather than render a
+    // method-specific approximation that lies, the shader sticks with
+    // same-longitude projection and the panel's descriptor line surfaces
+    // the divergence (see describePolarMethod in src/panel.js).
     const float FAJR_LIMIT = 74.0 * PI / 180.0; // 90° - 16° (Fajr fails beyond this)
     const float DAY_LIMIT  = 0.5 * PI;          // 90° (polar night beyond this)
     float northThresh = min(FAJR_LIMIT - decl, DAY_LIMIT + decl);

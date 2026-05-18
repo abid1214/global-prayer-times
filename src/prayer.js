@@ -89,21 +89,23 @@ function anchorMaghrib(times) {
 }
 
 // ---------- clock-based "Now in" classifier ----------
-// Mirrors the shader logic that will live in earthMaterial.js for
-// methods 3-5 (AQRAB_AL_AWQAT / MIDNIGHT / SEVENTH / ANGLE_REDUCED).
+// Used for the side-panel "Now in" indicator under methods 2-5
+// (AQRAB_AL_AWQAT / MIDNIGHT / SEVENTH / ANGLE_REDUCED). For these
+// methods the band timing no longer matches "sun is at angle X below
+// horizon" — bands come from either a different day (aqrab al-awqāt)
+// or from a synthesized midnight/seventh split that doesn't
+// correspond to any sun altitude at this location. The sun-altitude
+// classifier in solar.js would produce e.g. "Dhuhr" during polar
+// night under aqrab al-awqāt, which is the kind of bug that erodes
+// user trust.
 //
-// Why a separate classifier: for these methods the band timing no
-// longer matches "sun is at angle X below horizon" — bands come from
-// either a different day (aqrab al-awqāt) or from a synthesized
-// midnight/seventh split that doesn't correspond to any sun altitude
-// at this location. The sun-altitude classifier in solar.js would
-// produce e.g. "Dhuhr" during polar night under aqrab al-awqāt, which
-// is the kind of bug that erodes user trust.
-//
-// MIRRORED in earthMaterial.js — keep `classifyByClock` and the shader's
-// equivalent per-pixel logic in lockstep. If you edit the band ordering
-// or the post-midnight handling here, update the shader too.
-function classifyByClock(times, now) {
+// NOTE: this is intentionally NOT mirrored in the fragment shader.
+// The visual cap always renders via same-longitude projection
+// regardless of method (see the docblock in earthMaterial.js). For
+// methods 2-5 the bands inside the cap will therefore disagree with
+// the side panel — the panel's descriptor line in panel.js surfaces
+// the divergence.
+export function classifyByClock(times, now) {
   const t = now.getTime();
   const fajr    = times.fajr   ? times.fajr.getTime()    : NaN;
   const sunrise = times.sunrise ? times.sunrise.getTime(): NaN;
