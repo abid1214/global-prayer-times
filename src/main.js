@@ -40,15 +40,28 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 
-// Default camera placement: pick the direction that puts the sun exactly
-// behind Earth when the user scrubs the hour scrubber by +12 h. That's
-// just −sunDir at t = now + 12 h: the camera-Earth-sun line is
-// collinear at that future time, so the sun mesh passes squarely
-// behind Earth's silhouette as you cross +12 h. The lit hemisphere is
-// still in view at t = 0 (cameraDir · sunDir(0) ≈ +1, since sunDir
-// rotates ~180° in xz over 12 h and declination is essentially
-// constant). If a ?lat=&lon= link was shared, point at that location
-// instead.
+// Default camera placement: pick the direction that puts the sun
+// exactly behind Earth when the user scrubs the hour scrubber by
+// +12 h from page load. cameraDir = −sunDir(t_load + 12 h), so the
+// camera-Earth-sun line is collinear at that future moment.
+//
+// Caveats worth knowing:
+//  • Lit hemisphere is on the visible side at t = 0, but the dot
+//    product cameraDir · sunDir(t_load) is cos 2δ, not 1: near
+//    equinox the subsolar point sits near the centre of the visible
+//    disc; at solstice it sits ~47° off-centre but still on the lit
+//    side (cos 46° ≈ 0.68).
+//  • The +12 h alignment is exact at the *moment* of page load. The
+//    scrubber's "+12 h" is computed against fresh Date.now() on
+//    every input, so if the page sits open for hours before the user
+//    scrubs, the rendered sun drifts ~15°/hour of real-time wait
+//    versus the camera's load-time target. In practice users
+//    interact within seconds and the drift is sub-degree; we don't
+//    auto-rotate the camera (that would feel like the camera was
+//    moving on its own).
+//
+// If a ?lat=&lon= link was shared, point at that location instead;
+// the +12 h trick is moot for shared views.
 const INITIAL_DISTANCE = 3.6;
 const _initialView = parseUrlLocation();
 {
@@ -57,9 +70,10 @@ const _initialView = parseUrlLocation();
     const v = latLonToVec3(_initialView.latRad, _initialView.lonRad);
     dir = v;
   } else {
-    // Use the sun's *future* position so the alignment is exact, not an
-    // approximation derived from reflecting today's sunDir — the actual
-    // +12 h sun has a slightly different declination + equation-of-time.
+    // Use the sun's *future* position so the alignment is exact at
+    // load — not an approximation derived from reflecting today's
+    // sunDir, which has slightly different declination + EOT 12 h
+    // out.
     const t12 = new Date(Date.now() + 12 * 3600 * 1000);
     const { sunDir: future } = sunPosition(t12);
     dir = [-future[0], -future[1], -future[2]];
