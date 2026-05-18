@@ -40,20 +40,15 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 
-// Default camera placement: place the camera so that scrubbing the hour
-// scrubber by ±12 h moves the sun *exactly* behind Earth from the
-// camera's vantage. Because the sun stays at the same declination as
-// time advances (declination changes are sub-arcminute per hour), the
-// y component of the sun's position at +12 h is unchanged. To get a
-// collinear camera–Earth–sun line at that future time, the camera
-// direction needs to be −sunDir(+12 h). With sunDir(+12 h) = sunDir(0)
-// with its xz components negated, that works out to:
-//   cameraDir = (sunDir.x, −sunDir.y, sunDir.z)
-// — sunDir(t=0) reflected through the equatorial plane. The lit
-// hemisphere is still in view at t=0 (cameraDir · sunDir(0) =
-// cos²δ − sin²δ = cos 2δ > 0 for any |δ| < 45°). If a ?lat=&lon=
-// link was shared, point at that location instead; the equatorial-
-// mirror trick is moot.
+// Default camera placement: pick the direction that puts the sun exactly
+// behind Earth when the user scrubs the hour scrubber by +12 h. That's
+// just −sunDir at t = now + 12 h: the camera-Earth-sun line is
+// collinear at that future time, so the sun mesh passes squarely
+// behind Earth's silhouette as you cross +12 h. The lit hemisphere is
+// still in view at t = 0 (cameraDir · sunDir(0) ≈ +1, since sunDir
+// rotates ~180° in xz over 12 h and declination is essentially
+// constant). If a ?lat=&lon= link was shared, point at that location
+// instead.
 const INITIAL_DISTANCE = 3.6;
 const _initialView = parseUrlLocation();
 {
@@ -62,8 +57,12 @@ const _initialView = parseUrlLocation();
     const v = latLonToVec3(_initialView.latRad, _initialView.lonRad);
     dir = v;
   } else {
-    const { sunDir } = sunPosition(new Date());
-    dir = [sunDir[0], -sunDir[1], sunDir[2]];
+    // Use the sun's *future* position so the alignment is exact, not an
+    // approximation derived from reflecting today's sunDir — the actual
+    // +12 h sun has a slightly different declination + equation-of-time.
+    const t12 = new Date(Date.now() + 12 * 3600 * 1000);
+    const { sunDir: future } = sunPosition(t12);
+    dir = [-future[0], -future[1], -future[2]];
   }
   camera.position.set(dir[0] * INITIAL_DISTANCE, dir[1] * INITIAL_DISTANCE, dir[2] * INITIAL_DISTANCE);
   camera.lookAt(0, 0, 0);
