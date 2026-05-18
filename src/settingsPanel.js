@@ -26,6 +26,12 @@ const radios  = document.querySelectorAll('input[name="polarMethod"]');
 let hideTimeout = null;
 let openRaf = null;
 let isOpen = false;
+// Drag state for the mobile bottom-sheet's swipe-down handle.
+// Declared up here so close() can cancel it if the panel is dismissed
+// mid-drag (e.g., Escape key fires while the user's finger is still
+// down) — otherwise the inline transform set during pointermove would
+// override the CSS slide-out transform.
+let drag = null;
 
 function open() {
   if (isOpen) return;
@@ -45,6 +51,17 @@ function close() {
   if (!isOpen) return;
   isOpen = false;
   if (openRaf !== null) { cancelAnimationFrame(openRaf); openRaf = null; }
+  // If close() fires mid-drag (Escape or backdrop tap before pointerup),
+  // cancel the drag and clear the inline transform so the CSS slide-out
+  // transition can actually run. Without this, the inline
+  // transform: translateY(...) set during pointermove would override
+  // the closed-state CSS transform and the sheet would snap away when
+  // hideTimeout fires instead of animating out.
+  if (drag) {
+    panel.classList.remove("dragging");
+    drag = null;
+  }
+  panel.style.transform = "";
   overlay.classList.remove("open");
   document.removeEventListener("keydown", onKey);
   // Wait for the slide-out transition before yanking the overlay
@@ -68,8 +85,8 @@ backdrop.addEventListener("click", close);
 // Swipe-down to dismiss on the mobile bottom-sheet variant. Mirrors
 // the prayer-times panel handle in src/panel.js so the two surfaces
 // share the same gesture. Handle is display:none on desktop, so the
-// listeners are inert there.
-let drag = null;
+// listeners are inert there. `drag` itself is declared above close()
+// so close() can clean it up if dismissed mid-drag.
 handle.addEventListener("pointerdown", (e) => {
   drag = { startY: e.clientY, dy: 0 };
   panel.classList.add("dragging");

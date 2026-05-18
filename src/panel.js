@@ -66,7 +66,12 @@ function cancelPendingDismiss() {
 
 function dismissPanel() {
   if (panel.hidden) return;
-  if (methodUnsub) { methodUnsub(); methodUnsub = null; }
+  // Intentionally do NOT unsubscribe from method changes here: when
+  // the user dismisses to peek on mobile, a method change via the
+  // gear should still refresh the peek's "Now:" label. The
+  // subscriber callback (see showPanelForLocation) handles both the
+  // full-panel and peek states. Next showPanelForLocation replaces
+  // the subscription cleanly on a new location.
   lastRender = null;
   if (!isMobile()) {
     panel.hidden = true;
@@ -337,10 +342,22 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
 
   // Subscribe to method changes for live re-render. Replace any
   // existing subscription (in case the user picks a new location
-  // without dismissing). Unsubscribed in dismissPanel.
+  // without dismissing). Kept alive across dismiss → peek so a
+  // method change while peeking refreshes the peek label too;
+  // replaced on the next showPanelForLocation when the user picks
+  // a different location.
   if (methodUnsub) methodUnsub();
   methodUnsub = subscribeMethod(() => {
-    if (lastRender) render(lastRender.lat, lastRender.lon, lastRender.date, lastRender.tz);
+    if (!panel.hidden && lastRender) {
+      // Full panel open — re-render in place.
+      render(lastRender.lat, lastRender.lon, lastRender.date, lastRender.tz);
+    } else if (!panelPeek.hidden && lastLocation) {
+      // Peek visible — recompute currentPrayer for the new method
+      // and refresh the peek's "Now:" label.
+      const times = getTimesForLocation(lastLocation.lat, lastLocation.lon, lastLocation.date);
+      lastLocation.currentPrayer = times.currentPrayer;
+      showPeek(lastLocation);
+    }
   });
 
   // Resolve tz, then render. If tz-lookup is slow, we render with the
