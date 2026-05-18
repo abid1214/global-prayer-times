@@ -40,10 +40,14 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 
-// Default camera placement: from the sun looking at Earth, so the lit
-// hemisphere fills the screen on first paint. If a ?lat=&lon= link was
-// shared, point at that location instead. Either way, distance 3.6 from
-// origin (same as the original numeric setup).
+// Default camera placement: from the sun's azimuth in Earth's equatorial
+// plane, looking at Earth. The lit hemisphere fills the screen on first
+// paint, and — critically — placing the camera at y=0 rather than at
+// sunDir × 3.6 (which has a y component from solar declination) means
+// the camera–Earth–sun line is exactly collinear when you scrub time by
+// ~12 hours, putting the sun fully behind Earth instead of grazing past
+// the pole. If a ?lat=&lon= link was shared, point at that location
+// instead and the equatorial-plane trick is moot.
 const INITIAL_DISTANCE = 3.6;
 const _initialView = parseUrlLocation();
 {
@@ -53,7 +57,12 @@ const _initialView = parseUrlLocation();
     dir = v;
   } else {
     const { sunDir } = sunPosition(new Date());
-    dir = sunDir;
+    // Project to the equatorial plane (y = 0) and renormalize. xz is the
+    // cosine of the solar declination, so it's always ≥ ~0.92 — but
+    // guard anyway in case sunPosition ever returns a near-pole direction.
+    const xz = Math.hypot(sunDir[0], sunDir[2]);
+    if (xz < 1e-6) dir = [1, 0, 0];
+    else dir = [sunDir[0] / xz, 0, sunDir[2] / xz];
   }
   camera.position.set(dir[0] * INITIAL_DISTANCE, dir[1] * INITIAL_DISTANCE, dir[2] * INITIAL_DISTANCE);
   camera.lookAt(0, 0, 0);
