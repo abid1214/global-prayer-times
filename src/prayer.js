@@ -35,24 +35,22 @@ const DAY_LIMIT_DEG = 90;
 // Compute the Aqrab al-Bilād projection for (latDeg, date) without
 // running the full Adhan PrayerTimes calculation. Longitude is
 // irrelevant — the projection only clamps latitude — so it's not a
-// parameter. Returns the projection info (an object with
-// `projectedFromLat`, plus a copy of the clamped `effLatDeg`) if the
-// location falls inside the polar fade cap at this date, or null if no
-// projection is needed. Cheap enough to call from render-frequency code
-// paths.
+// parameter. Returns `{ projectedFromLat }` if the location falls inside
+// the polar fade cap at this date, or null if no projection is needed.
+// Cheap enough to call from render-frequency code paths.
 export function aqrabProjection(latDeg, date = new Date()) {
   const { declination } = sunPosition(date);
   const declDeg = (declination * 180) / Math.PI;
   const northThresh = Math.min(FAJR_LIMIT_DEG - declDeg, DAY_LIMIT_DEG + declDeg);
   const southThresh = Math.max(-FAJR_LIMIT_DEG - declDeg, -DAY_LIMIT_DEG + declDeg);
-  if (latDeg > northThresh) return { effLatDeg: northThresh, projectedFromLat: northThresh };
-  if (latDeg < southThresh) return { effLatDeg: southThresh, projectedFromLat: southThresh };
+  if (latDeg > northThresh) return { projectedFromLat: northThresh };
+  if (latDeg < southThresh) return { projectedFromLat: southThresh };
   return null;
 }
 
 export function getTimesForLocation(latDeg, lonDeg, date = new Date()) {
   const aqrab = aqrabProjection(latDeg, date);
-  const effLatDeg = aqrab ? aqrab.effLatDeg : latDeg;
+  const effLatDeg = aqrab ? aqrab.projectedFromLat : latDeg;
 
   const coords = new adhan.Coordinates(effLatDeg, lonDeg);
   const params = jafariParams();

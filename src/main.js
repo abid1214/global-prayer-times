@@ -451,6 +451,22 @@ function setProjectionViz(actualLatDeg, lonDeg, projectedLatDeg) {
 // Single entry point for "user picked a location": pin, qibla, panel,
 // and any Aqrab al-Bilād projection viz. Centralises so click and search
 // stay in lockstep.
+// Last location the user picked (click / search / URL load), kept so the
+// projection viz can be re-evaluated when the scrubber changes the
+// effective date. Without this, the teal pin/arc would stay at the
+// threshold latitude for the moment the location was first selected and
+// drift out of sync with the panel's "projected from N°" note as
+// declination moves.
+let _lastSelection = null;
+
+function refreshProjectionForCurrentSelection() {
+  if (!_lastSelection) return;
+  const { latDeg, lonDeg } = _lastSelection;
+  const aqrab = aqrabProjection(latDeg, effectiveNow());
+  if (aqrab) setProjectionViz(latDeg, lonDeg, aqrab.projectedFromLat);
+  else clearProjectionViz();
+}
+
 function selectLocation(latDeg, lonDeg, name) {
   const latRad = (latDeg * Math.PI) / 180;
   const lonRad = (lonDeg * Math.PI) / 180;
@@ -466,6 +482,7 @@ function selectLocation(latDeg, lonDeg, name) {
   } else {
     clearProjectionViz();
   }
+  _lastSelection = { latDeg, lonDeg, name };
   showPanelForLocation({ lat: latDeg, lon: lonDeg, name }, date);
 }
 
@@ -557,6 +574,7 @@ function initScrubber() {
     const now = effectiveNow();
     updateSunUniforms(now);
     updateClock(now, scrubLive);
+    refreshProjectionForCurrentSelection();
     markDirty();
   }
 
@@ -574,6 +592,10 @@ function initScrubber() {
     const now = effectiveNow();
     updateSunUniforms(now);
     updateClock(now, scrubLive);
+    // Threshold latitude depends on declination, which moves as the
+    // user scrubs the date. Re-aim the teal pin/arc against the new
+    // date so they stay in sync with the panel's "projected from N°".
+    refreshProjectionForCurrentSelection();
     markDirty();
   });
 
@@ -586,6 +608,7 @@ function initScrubber() {
     const now = effectiveNow();
     updateSunUniforms(now);
     updateClock(now, scrubLive);
+    refreshProjectionForCurrentSelection();
     markDirty();
   });
 
