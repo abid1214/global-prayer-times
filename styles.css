@@ -113,6 +113,33 @@ html, body {
 }
 #infoBtn:hover { background: rgba(106, 168, 255, 0.18); }
 
+#settingsBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  flex-shrink: 0;
+  margin-left: 10px;
+  /* topbar has pointer-events: none for click-through to the globe;
+     the gear button needs to opt back in to receive clicks. */
+  pointer-events: auto;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+#settingsBtn:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+  background: rgba(106, 168, 255, 0.08);
+}
+
 #legend ul { list-style: none; padding: 0; margin: 0 0 10px; }
 #legend li {
   padding: 1px 0;
@@ -342,6 +369,14 @@ html, body {
   padding: 4px 0 4px 12px;
   border-left: 2px solid rgba(106, 168, 255, 0.35);
 }
+#infoModal p.note {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-left: 2px solid rgba(106, 168, 255, 0.35);
+  background: rgba(106, 168, 255, 0.06);
+  font-size: 13px;
+  line-height: 1.55;
+}
 #infoModal .evidence p {
   margin: 6px 0;
   font-size: 12px;
@@ -374,6 +409,158 @@ html, body {
   line-height: 1;
 }
 #infoClose:hover { color: var(--fg); }
+
+/* settings slide-over */
+#settingsOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+}
+#settingsOverlay[hidden] { display: none; }
+#settingsBackdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  pointer-events: auto;
+}
+#settingsOverlay.open #settingsBackdrop { opacity: 1; }
+
+#settingsPanel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 360px;
+  max-width: 92vw;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  border-left: 1px solid var(--border);
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.22s ease;
+  pointer-events: auto;
+  overflow-y: auto;
+}
+#settingsOverlay.open #settingsPanel { transform: translateX(0); }
+#settingsPanel.dragging { transition: none; }
+
+/* Hidden on desktop; only the bottom-sheet variant on mobile shows
+   the handle. */
+#settingsHandle { display: none; }
+
+#settingsPanel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  z-index: 1;
+}
+#settingsTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+#settingsClose {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+#settingsClose:hover { color: var(--fg); }
+
+#settingsPanel .settings-group { padding: 16px 20px 24px; }
+#settingsPanel .settings-group h3 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--accent);
+}
+#settingsPanel .group-hint {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.method-option {
+  padding: 10px 8px;
+  margin: 0 -8px;
+  border-radius: 6px;
+  transition: background 0.12s;
+}
+.method-option:hover { background: rgba(255,255,255,0.04); }
+.method-option-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+.method-option-row input[type="radio"] {
+  margin-top: 3px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+.method-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.method-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.method-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.learn-more {
+  margin-top: 4px;
+  /* Indent past the radio + flex gap so "Learn more" aligns with the
+     title/description text above it. Match .method-option-row's input
+     width (~16px) + gap (10px). */
+  margin-left: 26px;
+  font-size: 11px;
+}
+.learn-more > summary {
+  color: var(--accent);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.learn-more > summary::-webkit-details-marker { display: none; }
+.learn-more > summary::before {
+  content: "▸ ";
+  display: inline-block;
+  width: 12px;
+  transition: transform 0.12s;
+}
+.learn-more[open] > summary::before { content: "▾ "; }
+.learn-more > p {
+  margin: 6px 0 0;
+  padding-left: 14px;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 12px;
+}
 
 #panel {
   position: absolute;
@@ -410,7 +597,13 @@ html, body {
 }
 
 #panelCoords, #panelDate { font-size: 12px; }
-#panelDate { margin-bottom: 10px; }
+#panelDate { margin-bottom: 4px; }
+#panelMethodNote {
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.7;
+  margin-bottom: 10px;
+}
 
 #panelCurrent {
   font-size: 12px;
@@ -665,6 +858,61 @@ html, body {
 @media (max-width: 480px) {
   #legend { padding: 10px 12px; }
   #panel h2 { font-size: 15px; }
+}
+
+/* Settings bottom-sheet on mobile — mirrors the prayer-times panel so
+   both surfaces share the same dismiss gesture (swipe-down on the
+   handle, tap backdrop, or close button). */
+@media (max-width: 768px) {
+  #settingsPanel {
+    top: auto;
+    right: 0;
+    left: 0;
+    bottom: 0;
+    height: auto;
+    max-height: 80vh;
+    width: 100%;
+    max-width: 100%;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 14px 14px 0 0;
+    transform: translateY(100%);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    transition: transform 0.22s ease;
+    will-change: transform;
+  }
+  #settingsOverlay.open #settingsPanel { transform: translateY(0); }
+  #settingsHandle {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80px;          /* wider hit target than visual bar */
+    height: 18px;         /* taller hit target than visual bar */
+    background: transparent;
+    touch-action: none;
+    cursor: grab;
+    z-index: 3;           /* above the sticky header */
+  }
+  #settingsHandle::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--muted);
+    opacity: 0.55;
+  }
+  #settingsHandle:active { cursor: grabbing; }
+  /* Push the sticky header below the handle so the handle isn't
+     occluded when the user scrolls inside the sheet. */
+  #settingsPanel header {
+    padding-top: 18px;
+  }
 }
 
 @media (pointer: coarse) {

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Classifier Agreement Test</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "adhan": "https://cdn.jsdelivr.net/npm/adhan@4.4.3/+esm"
+    }
+  }
+  </script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 24px; max-width: 860px; color: #222; }
+    h1 { margin-bottom: 4px; }
+    p.lede { color: #555; margin-top: 4px; }
+    pre { background: #f5f5f5; padding: 14px; border-radius: 4px; line-height: 1.55; font-size: 13px; overflow-x: auto; }
+    .pass { color: #1a8a30; }
+    .fail { color: #c0392b; font-weight: 700; }
+    .skip { color: #888; }
+    .summary { font-weight: 700; display: inline-block; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Classifier Agreement Test</h1>
+  <p class="lede">Locks in the architectural decision that the polar-cap shader
+    always uses same-longitude projection regardless of method, while the side
+    panel uses a clock-based classifier (rather than sun-altitude) under the
+    four clock-mode methods: aqrab al-awqāt, niṣf al-layl, sub'iyya, and
+    angle-based with seasonal reduction. See the docblocks in
+    <code>src/earthMaterial.js</code> and <code>src/prayer.js</code>.</p>
+  <p class="lede">Run via a local static server (ES module imports from
+    <code>../src/</code> are blocked under <code>file://</code> in most browsers);
+    e.g. from the repo root: <code>python3 -m http.server 8000</code>, then open
+    <code>http://localhost:8000/tests/classifierAgreement.html</code>.</p>
+  <pre id="results">Loading…</pre>
+  <script type="module" src="./classifierAgreement.test.js"></script>
+</body>
+</html>

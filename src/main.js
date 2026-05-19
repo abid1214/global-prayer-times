@@ -9,6 +9,8 @@ import { showPanelForLocation } from "./panel.js";
 import { aqrabProjection } from "./prayer.js";
 import { initSearch } from "./search.js";
 import { GlobeControls } from "./globeControls.js";
+import { POLAR_METHODS, getMethod, subscribe as subscribeMethod } from "./settings.js";
+import { snapToNearestHighLatCity } from "./highLatCities.js";
 
 // Uniformly-lit NASA Blue Marble composite (no baked-in sunlight shading).
 const DAY_TEXTURE = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
@@ -390,20 +392,32 @@ function setQiblaFrom(latDeg, lonDeg) {
 // note — a visual cue that the times shown aren't computed at the actual
 // tapped latitude.
 function clearProjectionViz() {
-  if (projectionPin) projectionPin.visible = false;
+  let changed = false;
+  if (projectionPin && projectionPin.visible) {
+    projectionPin.visible = false;
+    changed = true;
+  }
   if (projectionLine) {
     earthGroup.remove(projectionLine);
     projectionLine.geometry.dispose();
     projectionLine.material.dispose();
     projectionLine = null;
+    changed = true;
   }
+  // The render loop is dirty-flag gated, so removing the pin / arc
+  // doesn't visually erase them until something else dirties the
+  // scene. setProjectionViz() markDirty's at the end; mirror here.
+  if (changed) markDirty();
 }
 
-function setProjectionViz(actualLatDeg, lonDeg, projectedLatDeg) {
+// Target lat/lon may differ from the user's lon for the nearest-city
+// method, so both must be passed explicitly rather than inferring from
+// the user's lon.
+function setProjectionViz(actualLatDeg, actualLonDeg, targetLatDeg, targetLonDeg) {
   if (!earthGroup || !projectionPin) return;
-  const latRadProj = (projectedLatDeg * Math.PI) / 180;
-  const lonRad = (lonDeg * Math.PI) / 180;
-  const v = latLonToVec3(latRadProj, lonRad);
+  const latRadTgt = (targetLatDeg * Math.PI) / 180;
+  const lonRadTgt = (targetLonDeg * Math.PI) / 180;
+  const v = latLonToVec3(latRadTgt, lonRadTgt);
   projectionPin.position.set(v[0] * 1.005, v[1] * 1.005, v[2] * 1.005);
   projectionPin.visible = true;
 
@@ -413,9 +427,16 @@ function setProjectionViz(actualLatDeg, lonDeg, projectedLatDeg) {
     projectionLine.material.dispose();
     projectionLine = null;
   }
-  const A = new THREE.Vector3(...latLonToVec3((actualLatDeg * Math.PI) / 180, lonRad));
-  const B = new THREE.Vector3(...latLonToVec3(latRadProj, lonRad));
-  if (A.distanceTo(B) < 0.001) return;
+  const A = new THREE.Vector3(...latLonToVec3((actualLatDeg * Math.PI) / 180, (actualLonDeg * Math.PI) / 180));
+  const B = new THREE.Vector3(...latLonToVec3(latRadTgt, lonRadTgt));
+  if (A.distanceTo(B) < 0.001) {
+    // No arc to draw, but the pin's position/visibility above may
+    // have changed (e.g., method switch landed the pin essentially
+    // on the user's actual lat). Dirty the scene so the change
+    // shows up under the dirty-flag render loop.
+    markDirty();
+    return;
+  }
   const omega = Math.acos(Math.max(-1, Math.min(1, A.dot(B))));
   const sinOmega = Math.sin(omega);
   const N = 32;
@@ -459,11 +480,38 @@ function setProjectionViz(actualLatDeg, lonDeg, projectedLatDeg) {
 // declination moves.
 let _lastSelection = null;
 
+// Where the projection pin/arc should sit for the current method.
+// Returns null when no pin should be drawn (location outside the cap,
+// or any of the four methods with no spatial schedule source).
+//   • SAME_LON     → pin at same-longitude projection
+//   • NEAREST_CITY → pin at the snapped city (falls back to SAME_LON
+//                    when no city is in window)
+//   • AQRAB_AL_AWQAT / MIDNIGHT / SEVENTH / ANGLE_REDUCED → null
+// The pin's purpose is "where did these times come from?" — so it
+// tracks the actual times source, not the visualization projection.
+function pinSourceForMethod(latDeg, lonDeg, date) {
+  const aqrab = aqrabProjection(latDeg, date);
+  if (!aqrab) return null;
+  const method = getMethod();
+  if (method === POLAR_METHODS.AQRAB_SAME_LON) {
+    return { targetLat: aqrab.projectedFromLat, targetLon: lonDeg };
+  }
+  if (method === POLAR_METHODS.AQRAB_NEAREST_CITY) {
+    const city = snapToNearestHighLatCity(latDeg, lonDeg, aqrab.projectedFromLat);
+    return city
+      ? { targetLat: city.lat, targetLon: city.lon }
+      : { targetLat: aqrab.projectedFromLat, targetLon: lonDeg };
+  }
+  // AQRAB_AL_AWQAT, MIDNIGHT, SEVENTH, ANGLE_REDUCED — no spatial
+  // schedule source to point at.
+  return null;
+}
+
 function refreshProjectionForCurrentSelection() {
   if (!_lastSelection) return;
   const { latDeg, lonDeg } = _lastSelection;
-  const aqrab = aqrabProjection(latDeg, effectiveNow());
-  if (aqrab) setProjectionViz(latDeg, lonDeg, aqrab.projectedFromLat);
+  const src = pinSourceForMethod(latDeg, lonDeg, effectiveNow());
+  if (src) setProjectionViz(latDeg, lonDeg, src.targetLat, src.targetLon);
   else clearProjectionViz();
 }
 
@@ -473,18 +521,18 @@ function selectLocation(latDeg, lonDeg, name) {
   setPin(latRad, lonRad);
   setQiblaFrom(latDeg, lonDeg);
   const date = effectiveNow();
-  // Cheap projection-only check — avoids re-running the full Adhan
-  // computation here just to read the threshold; the panel will call
-  // getTimesForLocation for the actual prayer times.
-  const aqrab = aqrabProjection(latDeg, date);
-  if (aqrab) {
-    setProjectionViz(latDeg, lonDeg, aqrab.projectedFromLat);
-  } else {
-    clearProjectionViz();
-  }
+  const src = pinSourceForMethod(latDeg, lonDeg, date);
+  if (src) setProjectionViz(latDeg, lonDeg, src.targetLat, src.targetLon);
+  else clearProjectionViz();
   _lastSelection = { latDeg, lonDeg, name };
   showPanelForLocation({ lat: latDeg, lon: lonDeg, name }, date);
 }
+
+// Method change repaints the pin/arc for the current selection. The
+// panel re-renders itself independently via its own subscription in
+// src/panel.js. Subscriber is global and never unsubscribed — main.js
+// runs for the lifetime of the page.
+subscribeMethod(() => refreshProjectionForCurrentSelection());
 
 // ---- ticking ----
 function updateSunUniforms(date) {
@@ -596,6 +644,8 @@ function initScrubber() {
     // user scrubs the date. Re-aim the teal pin/arc against the new
     // date so they stay in sync with the panel's "projected from N°".
     refreshProjectionForCurrentSelection();
+    // TODO: side panel doesn't re-render with the scrubber — its prayer
+    // times stay frozen to the date the panel was opened with.
     markDirty();
   });
 

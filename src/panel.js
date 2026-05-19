@@ -1,10 +1,12 @@
 import * as adhan from "adhan";
 import { getTimesForLocation, PRAYER_META } from "./prayer.js";
+import { subscribe as subscribeMethod } from "./settings.js";
 
 const panel = document.getElementById("panel");
 const panelLocation = document.getElementById("panelLocation");
 const panelCoords = document.getElementById("panelCoords");
 const panelDate = document.getElementById("panelDate");
+const panelMethodNote = document.getElementById("panelMethodNote");
 const panelCurrent = document.getElementById("panelCurrent");
 const panelTimesBody = document.querySelector("#panelTimes tbody");
 const panelQibla = document.getElementById("panelQibla");
@@ -16,6 +18,23 @@ const peekCur = panelPeek.querySelector(".peekCur");
 
 let dismissed = false;
 let lastLocation = null;
+// Last (lat, lon, date, tz) tuple used for render. Re-render on
+// method change reuses this rather than re-resolving timezone (which
+// is async and would flicker). Cleared on dismiss.
+let lastRender = null;
+// Active settings subscription. Established on the first
+// showPanelForLocation and kept alive across dismiss → peek (mobile)
+// and across desktop close, so a method change via the gear refreshes
+// whichever surface is currently visible (panel, peek, or nothing).
+// The single subscriber is replaced on the next showPanelForLocation
+// when the user picks a new location, so the count stays bounded.
+// settings.js's subscribe() returns an unsubscribe handle.
+let methodUnsub = null;
+// Monotonically increasing token bumped on every showPanelForLocation
+// call. The async timezone resolve compares against this before
+// committing its render — a stale resolution from a previous selection
+// gets dropped instead of overwriting the newer panel's times/tz.
+let selectionToken = 0;
 
 const isMobile = () => window.matchMedia("(max-width: 768px)").matches;
 
@@ -56,6 +75,13 @@ function cancelPendingDismiss() {
 
 function dismissPanel() {
   if (panel.hidden) return;
+  // Intentionally do NOT unsubscribe from method changes here: when
+  // the user dismisses to peek on mobile, a method change via the
+  // gear should still refresh the peek's "Now:" label. The
+  // subscriber callback (see showPanelForLocation) handles both the
+  // full-panel and peek states. Next showPanelForLocation replaces
+  // the subscription cleanly on a new location.
+  lastRender = null;
   if (!isMobile()) {
     panel.hidden = true;
     return;
@@ -246,7 +272,65 @@ function fmtBearing(deg) {
   return `${d.toFixed(1)}° (${dirs[idx]})`;
 }
 
+function fmtLat(lat) {
+  return `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}`;
+}
+
+// UTC-only short-date formatter, used for derivedFromDate (aqrab
+// al-awqāt's "schedule from {date}"). That's a date-only concept
+// stored as a Date-at-UTC-noon — formatting it in an IANA timezone
+// (especially +12 or higher) can roll into the next/previous local
+// calendar day. Forcing UTC keeps the label as the canonical
+// historical calendar date the schedule was computed for.
+function fmtUtcShortDate(d) {
+  return new Intl.DateTimeFormat([], {
+    month: "short", day: "numeric", year: "numeric", timeZone: "UTC",
+  }).format(d);
+}
+
+// Human description of how the polar-cap schedule was derived.
+// Returns { primary, secondary? } or null. `primary` is appended to
+// the date line; `secondary`, when present, renders as an italic
+// sub-line below — used only for caveats that don't belong in the
+// always-visible row.
+const CITY_VISUAL_DELTA_DEG = 1;
+function describePolarMethod(polarMethod, tz, _date) {
+  if (!polarMethod) return null;
+  switch (polarMethod.kind) {
+    case "aqrab":
+      return { primary: `Method: aqrab al-bilād · projected from ${fmtLat(polarMethod.projectedFromLat)}` };
+    case "aqrab_city": {
+      if (!polarMethod.city) {
+        return { primary: `Method: aqrab al-bilād (nearest city) · no city in window, fell back to ${fmtLat(polarMethod.projectedFromLat)}` };
+      }
+      const c = polarMethod.city;
+      const out = { primary: `Method: aqrab al-bilād · times from ${c.name}` };
+      // Shader can't carry a city table — visual cap always uses the
+      // same-longitude projection. Only flag it when the discrepancy
+      // is visually meaningful (>1° lat difference between the city
+      // and the projection target).
+      if (Math.abs(c.lat - polarMethod.projectedFromLat) > CITY_VISUAL_DELTA_DEG) {
+        out.secondary = `(cap visualization uses ${fmtLat(polarMethod.projectedFromLat)} projection)`;
+      }
+      return out;
+    }
+    case "aqrab_awqat":
+      return { primary: `Method: aqrab al-awqāt · schedule from ${fmtUtcShortDate(polarMethod.derivedFromDate)}` };
+    case "midnight":
+      return { primary: `Method: niṣf al-layl (middle of night)` };
+    case "seventh":
+      return { primary: `Method: sub'iyya (one-seventh)` };
+    case "angle_reduced":
+      return { primary: `Method: angle-based with seasonal reduction · Fajr ${polarMethod.fajrAngle.toFixed(1)}°, Isha ${polarMethod.ishaAngle.toFixed(1)}°` };
+    default:
+      return null;
+  }
+}
+
 export async function showPanelForLocation({ lat, lon, name }, date = new Date()) {
+  // Bump the token first so any in-flight tz-resolve from a previous
+  // call drops its render (see resolveTimezone().then below).
+  const token = ++selectionToken;
   const times = getTimesForLocation(lat, lon, date);
   lastLocation = { lat, lon, name, date, currentPrayer: times.currentPrayer };
   syncUrlFromLocation(lastLocation);
@@ -263,9 +347,31 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
   panelLocation.textContent = name || "Selected location";
   panelCoords.textContent = fmtCoords(lat, lon);
   panelDate.textContent = "Loading local time…";
+  panelMethodNote.hidden = true;
+  panelMethodNote.textContent = "";
   panelCurrent.innerHTML = "";
   panelTimesBody.innerHTML = "";
   panelQibla.textContent = "";
+
+  // Subscribe to method changes for live re-render. Replace any
+  // existing subscription (in case the user picks a new location
+  // without dismissing). Kept alive across dismiss → peek so a
+  // method change while peeking refreshes the peek label too;
+  // replaced on the next showPanelForLocation when the user picks
+  // a different location.
+  if (methodUnsub) methodUnsub();
+  methodUnsub = subscribeMethod(() => {
+    if (!panel.hidden && lastRender) {
+      // Full panel open — re-render in place.
+      render(lastRender.lat, lastRender.lon, lastRender.date, lastRender.tz);
+    } else if (!panelPeek.hidden && lastLocation) {
+      // Peek visible — recompute currentPrayer for the new method
+      // and refresh the peek's "Now:" label.
+      const times = getTimesForLocation(lastLocation.lat, lastLocation.lon, lastLocation.date);
+      lastLocation.currentPrayer = times.currentPrayer;
+      showPeek(lastLocation);
+    }
+  });
 
   // Resolve tz, then render. If tz-lookup is slow, we render with the
   // approximation immediately, then upgrade once it loads.
@@ -273,20 +379,35 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
   render(lat, lon, date, fastTz);
 
   resolveTimezone(lat, lon).then((tz) => {
+    // Guard against races: if the user has selected a different
+    // location while tz-lookup was in flight, drop this stale
+    // resolution rather than overwriting the newer panel with
+    // mismatched header / tz.
+    if (token !== selectionToken) return;
     if (tz.kind === "iana") render(lat, lon, date, tz);
   });
 }
 
 function render(lat, lon, date, tz) {
+  lastRender = { lat, lon, date, tz };
   const times = getTimesForLocation(lat, lon, date);
+  // Keep lastLocation.currentPrayer in lockstep with the just-rendered
+  // band so the peek bar's "Now:" label stays accurate after a method
+  // change or tz refinement. Without this, dismissing the panel after
+  // switching method would show the band from panel-open time.
+  if (lastLocation) lastLocation.currentPrayer = times.currentPrayer;
 
   let dateLine = `${fmtDateLabel(date, tz)} · ${tzLabel(tz, date)}`;
-  if (times.aqrab) {
-    const lat = times.aqrab.projectedFromLat;
-    const hemi = lat >= 0 ? "N" : "S";
-    dateLine += ` · projected from ${Math.abs(lat).toFixed(1)}°${hemi} (Aqrab al-Bilād)`;
-  }
+  const method = describePolarMethod(times.polarMethod, tz, date);
+  if (method?.primary) dateLine += ` · ${method.primary}`;
   panelDate.textContent = dateLine;
+  if (method?.secondary) {
+    panelMethodNote.textContent = method.secondary;
+    panelMethodNote.hidden = false;
+  } else {
+    panelMethodNote.textContent = "";
+    panelMethodNote.hidden = true;
+  }
 
   const cur = times.currentPrayer;
   const meta = PRAYER_META.find((p) => p.key === cur);

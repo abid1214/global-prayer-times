@@ -83,6 +83,13 @@ export function vec3ToLatLon(v) {
 const FAJR = -16 * DEG;
 const MAGHRIB = -4 * DEG;
 const ISHA = -14 * DEG;
+// Apparent horizon = -50' = -0.833°, matching Adhan.js's sunrise/sunset
+// convention (atmospheric refraction ~34' + solar semi-diameter ~16').
+// Adhan applies this offset ONLY to sunrise/sunset; Fajr (-16°), Maghrib
+// (-4°), Isha (-14°), and Asr are taken at face value (refraction is
+// negligible at those depths). See src/earthMaterial.js for the
+// shader-side mirror.
+const APPARENT_HORIZON = (-50 / 60) * DEG;
 
 export function classifyPrayer(latRad, lonRad, date) {
   const { sunDir, declination, subsolarLon } = sunPosition(date);
@@ -92,24 +99,33 @@ export function classifyPrayer(latRad, lonRad, date) {
 
   // Closed-form shar'ī midnight check — mirrors the shader so the panel's
   // "Now in" indicator stays in lockstep with the globe coloring.
-  // Hp = pixel hour angle in [0, 2π); Hmid = midpoint of the night between
-  // sunset (alt = 0°) and next dawn (alt = FAJR = -16°).
+  // Hp = pixel hour angle in [0, 2π); Hmid = midpoint of the night
+  // between MAGHRIB (alt = -4°, the Ja'fari sunset boundary) and next
+  // dawn (alt = FAJR = -16°). Using Maghrib rather than geometric
+  // sunset is the canonical Ja'fari definition (per Sistani/Khamenei
+  // tawḍīḥ); the rest of the app already takes the Ja'fari -4° reading
+  // for Maghrib, so anchoring midnight to it removes a previously-
+  // silent Sunni-convention regression in this single classifier.
   const TWO_PI = 2 * Math.PI;
   const Hp = ((lonRad - subsolarLon) % TWO_PI + TWO_PI) % TWO_PI;
   const cosLat = Math.cos(latRad);
   const cosDec = Math.cos(declination);
-  const cosHset = -Math.tan(latRad) * Math.tan(declination);
-  const Hset = Math.acos(Math.max(-1, Math.min(1, cosHset)));
-  const cosHfajr = (Math.sin(FAJR) - Math.sin(latRad) * Math.sin(declination)) /
-                   Math.max(cosLat * cosDec, 1e-4);
+  // 1e-4 floor on cos(φ)·cos(δ) protects acos at the geographic poles
+  // and at the high-lat regime where both terms approach zero. Matches
+  // the shader; do not shrink without testing |φ|, |δ| → 90°.
+  const COS_FLOOR = 1e-4;
+  const denom = Math.max(cosLat * cosDec, COS_FLOOR);
+  const cosHmag = (Math.sin(MAGHRIB) - Math.sin(latRad) * Math.sin(declination)) / denom;
+  const Hmag = Math.acos(Math.max(-1, Math.min(1, cosHmag)));
+  const cosHfajr = (Math.sin(FAJR) - Math.sin(latRad) * Math.sin(declination)) / denom;
   const Hfajr = Math.acos(Math.max(-1, Math.min(1, cosHfajr)));
-  const Hmid = Math.PI + (Hset - Hfajr) / 2;
+  const Hmid = Math.PI + (Hmag - Hfajr) / 2;
   const pastMidnight = Hp > Hmid;
 
   const zenithDiff = Math.min(Math.abs(latRad - declination), 1.4);
   const altAsr = Math.atan(1 / (1 + Math.tan(zenithDiff)));
 
-  if (alt > 0) {
+  if (alt > APPARENT_HORIZON) {
     if (pastMidnight) return "none"; // post-sunrise, pre-Dhuhr
     return alt >= altAsr ? "dhuhr" : "asr";
   }
