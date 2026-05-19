@@ -264,6 +264,10 @@ const AWQAT_CACHE_CAP = 256;
 const AWQAT_MAX_BACK_DAYS = 90;
 
 function walkBackForValidDay(latDeg, lonDeg, date) {
+  // FALLBACK INVARIANT: see midnightTimes for the rule. Here it means
+  // "non-NaN isn't enough" — adhan can return six valid Dates that
+  // are internally out of order at marginal polar dates, and accepting
+  // those as success silently corrupts the panel's "Now in" indicator.
   const params = jafariParams();
   for (let i = 1; i <= AWQAT_MAX_BACK_DAYS; i++) {
     const trial = addDays(date, -i);
@@ -352,14 +356,20 @@ function midnightTimes(latDeg, lonDeg, date, params) {
   const tSunrise  = today.sunrise;
   const nextRise  = tomorrow.sunrise;
 
+  // FALLBACK INVARIANT: any path that synthesizes prayer times must
+  // return strictly-chronological values (fajr < sunrise < dhuhr <
+  // asr < maghrib < isha) or NaN for missing markers. Never inherit
+  // upstream defaults that may violate this — adhan.js's internal
+  // MiddleOfTheNight default fires for some thresholds and not
+  // others at deep polar latitudes, producing six "valid" times in
+  // wrong order. The ordering invariant in
+  // tests/classifierAgreement.test.js asserts this for every
+  // (method, fixture) cell.
+  //
   // When the night anchors are missing (deep polar night/day where
-  // neither Maghrib nor sunrise occur), return NaN rather than falling
-  // back to today.fajr/today.isha — those values come from adhan's
-  // internal HighLatitudeRule default, which doesn't share semantics
-  // with this method and can produce times out of chronological order
-  // with adhan's other outputs (e.g., isha before asr at Longyearbyen
-  // in December). NaN propagates cleanly through classifyByClock's
-  // ordered walk and the panel's "—" display.
+  // neither Maghrib nor sunrise occur), return NaN rather than
+  // falling back to today.fajr/today.isha — those values come from
+  // adhan's default and don't share semantics with this method.
   const fajr = (isValidDate(yMaghrib) && isValidDate(tSunrise))
     ? new Date((yMaghrib.getTime() + tSunrise.getTime()) / 2)
     : new Date(NaN);
@@ -400,10 +410,9 @@ function seventhTimes(latDeg, lonDeg, date, params) {
   const tSunrise = today.sunrise;
   const nextRise = tomorrow.sunrise;
 
-  // See midnightTimes for the rationale: missing anchors → NaN
-  // rather than today.fajr / today.isha (which come from adhan's
-  // internal HighLatitudeRule default and don't share semantics
-  // with this method).
+  // FALLBACK INVARIANT (see midnightTimes): missing anchors → NaN,
+  // never adhan's internal MiddleOfTheNight default. Avoids
+  // out-of-order times at deep polar latitudes.
   let fajr = new Date(NaN);
   let isha = new Date(NaN);
   if (isValidDate(yMaghrib) && isValidDate(tSunrise)) {
@@ -470,12 +479,13 @@ function angleReducedTimes(latDeg, lonDeg, date, params) {
   reduced.ishaAngle = ishaAngleDeg;
   const t = computeAdhanAt(latDeg, lonDeg, date, reduced);
 
-  // At deep polar night the sun's max altitude can be more negative
-  // than the asr threshold (~0°), so adhan still returns a clamped
-  // value for asr — but the resulting isha (at the reduced angle)
-  // can land BEFORE asr, violating chronological order. Detect that
-  // and fall back to midnight, which returns NaN for fajr/isha when
-  // anchors are missing and stays cleanly ordered.
+  // FALLBACK INVARIANT (see midnightTimes): at deep polar night the
+  // sun's max altitude can be more negative than the asr threshold
+  // (~0°), so adhan still returns a clamped value for asr — but the
+  // resulting isha (at the reduced angle) can land BEFORE asr,
+  // violating chronological order. Detect that and fall back to
+  // midnight, which returns NaN for fajr/isha when anchors are
+  // missing and stays cleanly ordered.
   const mTime = anchorMaghrib(t);
   const ordered = isValidDate(t.fajr) && isValidDate(t.sunrise) && isValidDate(t.dhuhr)
     && isValidDate(t.asr) && isValidDate(mTime) && isValidDate(t.isha)
