@@ -76,6 +76,14 @@ export function aqrabProjection(latDeg, date = new Date()) {
 function addDays(date, n) {
   const d = new Date(date);
   d.setUTCDate(d.getUTCDate() + n);
+  // Normalize to UTC noon so the resulting "day" is unambiguous in
+  // every IANA timezone — without this, walking back from a late-UTC
+  // time (e.g., 23:00 UTC) lands at 23:00 the previous UTC day, which
+  // formats as the day before that in any timezone west of UTC. The
+  // time component doesn't matter to adhan (which keys on calendar
+  // date) but does matter to fmtShortDate's panel display for
+  // aqrab al-awqāt's derivedFromDate.
+  d.setUTCHours(12, 0, 0, 0);
   return d;
 }
 

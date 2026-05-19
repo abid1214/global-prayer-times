@@ -100,6 +100,16 @@ function referenceCoords(times, userLat, userLon) {
   return { lat: userLat, lon: userLon };
 }
 
+// Save the raw localStorage value rather than getMethod()'s result.
+// If the test page was opened with ?m=foo (which settings.js honors
+// at load), getMethod() returns "foo" but localStorage still holds
+// the recipient's true preference. Restoring via setMethod() would
+// write "foo" into localStorage and overwrite the saved value;
+// restoring the raw localStorage entry directly keeps the test
+// side-effect free.
+const STORAGE_KEY = "polar_method";
+let savedLocalStorage = null;
+try { savedLocalStorage = localStorage.getItem(STORAGE_KEY); } catch (_) {}
 const originalMethod = getMethod();
 try {
   for (const fx of FIXTURES) {
@@ -141,7 +151,15 @@ try {
     }
   }
 } finally {
+  // setMethod() restores settings.js's in-memory cache (so any
+  // post-test getMethod() returns the original choice). Then
+  // overwrite localStorage with the raw saved value so a ?m= URL
+  // override at load time doesn't leak into persistent storage.
   setMethod(originalMethod);
+  try {
+    if (savedLocalStorage === null) localStorage.removeItem(STORAGE_KEY);
+    else localStorage.setItem(STORAGE_KEY, savedLocalStorage);
+  } catch (_) {}
 }
 
 // ---- render results to the page ----
