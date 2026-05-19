@@ -306,32 +306,42 @@ function warnIfRemoteProjection(latDeg, lonDeg) {
 // convention; differs from the canonical Ja'fari shar'ī midnight
 // (Maghrib → next Fajr) by Fajr's duration. See the README's
 // high-latitude methods section for the divergence discussion.
-// Midpoint M = (Maghrib + next sunrise) / 2. Isha-faḍīla starts at M;
-// Fajr starts at M.
+//
+// Today's Fajr is the midpoint of the PRECEDING night (yesterday's
+// Maghrib → today's sunrise) — so it lands in the early hours and
+// stays in chronological order with sunrise/dhuhr/asr that follow.
+// Today's Isha is the midpoint of the UPCOMING night (today's
+// Maghrib → tomorrow's sunrise) — late evening, after maghrib.
+// Mirrors seventhTimes's split-night layout; without this, both
+// fajr and isha would land in the same UPCOMING-night midpoint
+// and classifyByClock's forward walk (fajr → sunrise → … → isha)
+// would mislabel the entire day.
 function midnightTimes(latDeg, lonDeg, date, params) {
-  const today    = computeAdhanAt(latDeg, lonDeg, date, params);
-  const tomorrow = computeAdhanAt(latDeg, lonDeg, addDays(date, 1), params);
-  const maghrib  = anchorMaghrib(today);
-  const nextRise = tomorrow.sunrise;
+  const yesterday = computeAdhanAt(latDeg, lonDeg, addDays(date, -1), params);
+  const today     = computeAdhanAt(latDeg, lonDeg, date, params);
+  const tomorrow  = computeAdhanAt(latDeg, lonDeg, addDays(date, 1), params);
+  const yMaghrib  = anchorMaghrib(yesterday);
+  const tMaghrib  = anchorMaghrib(today);
+  const tSunrise  = today.sunrise;
+  const nextRise  = tomorrow.sunrise;
 
-  let fajr, isha;
-  if (isValidDate(maghrib) && isValidDate(nextRise)) {
-    const mid = new Date((maghrib.getTime() + nextRise.getTime()) / 2);
-    fajr = mid;
-    isha = mid;
-  } else {
-    fajr = today.fajr;
-    isha = today.isha;
+  let fajr = today.fajr;
+  let isha = today.isha;
+  if (isValidDate(yMaghrib) && isValidDate(tSunrise)) {
+    fajr = new Date((yMaghrib.getTime() + tSunrise.getTime()) / 2);
+  }
+  if (isValidDate(tMaghrib) && isValidDate(nextRise)) {
+    isha = new Date((tMaghrib.getTime() + nextRise.getTime()) / 2);
   }
 
   return buildResult({
     latDeg, lonDeg, date,
     times: {
       fajr,
-      sunrise: today.sunrise,
+      sunrise: tSunrise,
       dhuhr:   today.dhuhr,
       asr:     today.asr,
-      maghrib,
+      maghrib: tMaghrib,
       isha,
       raw: today,
     },
