@@ -287,6 +287,18 @@ function fmtShortDate(d, tz) {
   }).format(d);
 }
 
+// UTC-only short-date formatter, used for derivedFromDate (aqrab
+// al-awqāt's "schedule from {date}"). That's a date-only concept
+// stored as a Date-at-UTC-noon — formatting it in an IANA timezone
+// (especially +12 or higher) can roll into the next/previous local
+// calendar day. Forcing UTC keeps the label as the canonical
+// historical calendar date the schedule was computed for.
+function fmtUtcShortDate(d) {
+  return new Intl.DateTimeFormat([], {
+    month: "short", day: "numeric", year: "numeric", timeZone: "UTC",
+  }).format(d);
+}
+
 // Human description of how the polar-cap schedule was derived.
 // Returns { primary, secondary? } or null. `primary` is appended to
 // the date line; `secondary`, when present, renders as an italic
@@ -314,7 +326,7 @@ function describePolarMethod(polarMethod, tz, _date) {
       return out;
     }
     case "aqrab_awqat":
-      return { primary: `Method: aqrab al-awqāt · schedule from ${fmtShortDate(polarMethod.derivedFromDate, tz)}` };
+      return { primary: `Method: aqrab al-awqāt · schedule from ${fmtUtcShortDate(polarMethod.derivedFromDate)}` };
     case "midnight":
       return { primary: `Method: niṣf al-layl (middle of night)` };
     case "seventh":

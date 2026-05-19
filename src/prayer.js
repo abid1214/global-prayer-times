@@ -76,13 +76,15 @@ export function aqrabProjection(latDeg, date = new Date()) {
 function addDays(date, n) {
   const d = new Date(date);
   d.setUTCDate(d.getUTCDate() + n);
-  // Normalize to UTC noon so the resulting "day" is unambiguous in
-  // every IANA timezone — without this, walking back from a late-UTC
-  // time (e.g., 23:00 UTC) lands at 23:00 the previous UTC day, which
-  // formats as the day before that in any timezone west of UTC. The
-  // time component doesn't matter to adhan (which keys on calendar
-  // date) but does matter to fmtShortDate's panel display for
-  // aqrab al-awqāt's derivedFromDate.
+  // Normalize to UTC noon as a defensive measure against day-boundary
+  // surprises when this Date is passed to adhan (which keys on
+  // calendar date) and when derivedFromDate is displayed. UTC noon is
+  // unambiguous for timezones in -11..+11; offsets beyond that
+  // (Kiritimati at UTC+14, Baker Island at UTC-12) can still roll
+  // into adjacent local days. Panel display defends separately by
+  // formatting derivedFromDate in UTC explicitly (see panel.js's
+  // fmtUtcShortDate) so the historical-date label is the canonical
+  // calendar day regardless of viewer locale.
   d.setUTCHours(12, 0, 0, 0);
   return d;
 }
@@ -484,15 +486,15 @@ export function getTimesForLocation(latDeg, lonDeg, date = new Date()) {
           fajr: t.fajr, sunrise: t.sunrise, dhuhr: t.dhuhr,
           asr: t.asr, maghrib: t.maghrib, isha: t.isha, raw: t,
         },
-        // Shader can't carry a city table, so it renders identically to
-        // AQRAB_SAME_LON (same-longitude projection). The panel surfaces
-        // the discrepancy via the "Visual cap shows…" message in
-        // panel.js when shaderFallback is false.
+        // Shader can't carry a city table, so it renders identically
+        // to AQRAB_SAME_LON (same-longitude projection). The panel
+        // descriptor in panel.js surfaces the discrepancy via a
+        // secondary line when the city's lat differs from the
+        // projection target by > 1°.
         polarMethod: {
           kind: "aqrab_city",
           projectedFromLat: projection.projectedFromLat,
           city: city || null,
-          shaderFallback: !city,
         },
         classifyMode: "sun",
       });
