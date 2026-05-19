@@ -41,6 +41,7 @@ function open() {
   if (pendingHide) { pendingHide.cancel(); pendingHide = null; }
   previousFocus = document.activeElement;
   overlay.hidden = false;
+  openBtn.setAttribute("aria-expanded", "true");
   // Allow the layout to commit hidden=false before adding .open so
   // the slide-in transition fires on first open.
   openRaf = requestAnimationFrame(() => {
@@ -73,6 +74,7 @@ function close() {
   }
   panel.style.transform = "";
   overlay.classList.remove("open");
+  openBtn.setAttribute("aria-expanded", "false");
   document.removeEventListener("keydown", onKey);
   document.removeEventListener("focusin", trapFocus);
   // Wait for the slide-out transition to finish before yanking the

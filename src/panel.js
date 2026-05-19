@@ -30,6 +30,11 @@ let lastRender = null;
 // when the user picks a new location, so the count stays bounded.
 // settings.js's subscribe() returns an unsubscribe handle.
 let methodUnsub = null;
+// Monotonically increasing token bumped on every showPanelForLocation
+// call. The async timezone resolve compares against this before
+// committing its render — a stale resolution from a previous selection
+// gets dropped instead of overwriting the newer panel's times/tz.
+let selectionToken = 0;
 
 const isMobile = () => window.matchMedia("(max-width: 768px)").matches;
 
@@ -322,6 +327,9 @@ function describePolarMethod(polarMethod, tz, _date) {
 }
 
 export async function showPanelForLocation({ lat, lon, name }, date = new Date()) {
+  // Bump the token first so any in-flight tz-resolve from a previous
+  // call drops its render (see resolveTimezone().then below).
+  const token = ++selectionToken;
   const times = getTimesForLocation(lat, lon, date);
   lastLocation = { lat, lon, name, date, currentPrayer: times.currentPrayer };
   syncUrlFromLocation(lastLocation);
@@ -370,6 +378,11 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
   render(lat, lon, date, fastTz);
 
   resolveTimezone(lat, lon).then((tz) => {
+    // Guard against races: if the user has selected a different
+    // location while tz-lookup was in flight, drop this stale
+    // resolution rather than overwriting the newer panel with
+    // mismatched header / tz.
+    if (token !== selectionToken) return;
     if (tz.kind === "iana") render(lat, lon, date, tz);
   });
 }

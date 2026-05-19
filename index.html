@@ -26,7 +26,8 @@
     <header id="topbar">
       <div class="title">Global Prayer Times <span class="muted">— Shia (Ja'fari)</span></div>
       <div id="clock"></div>
-      <button id="settingsBtn" aria-label="Settings" title="Settings">&#9881;</button>
+      <button id="settingsBtn" aria-label="Settings" title="Settings"
+              aria-haspopup="dialog" aria-controls="settingsPanel" aria-expanded="false">&#9881;</button>
     </header>
 
     <aside id="legend">
@@ -149,8 +150,18 @@
 
         <h3>High Latitudes</h3>
         <p>The altitude-based calculation fails in two sun-relative ways: where the sun never reaches Fajr's &minus;16&deg; (<code>|&#x3c6; + &#x3b4;|&nbsp;&gt;&nbsp;74&deg;</code>), or where the sun never crosses the apparent horizon at all (polar night, <code>|&#x3c6; &minus; &#x3b4;|&nbsp;&gt;&nbsp;90.833&deg;</code> &mdash; 90&deg; + 50&prime;, matching Adhan.js's refraction + solar-semi-diameter offset). The cap kicks in at whichever boundary trips first &mdash; Fajr-driven on the summer side, polar-night-driven on the winter side &mdash; so the caps tilt with the season as you scrub the date.</p>
-        <p>Inside the cap each pixel is shaded with the prayer color of its projection point &mdash; the nearest valid latitude on the <em>same longitude</em> &mdash; so the caps continue the prayer bands smoothly across the threshold rather than dropping out. Tap a polar location and a teal pin and arc appear on the map at the projection point, with the side panel showing that projected schedule. This is the <em>Aqrab al-Bil&#x101;d</em> ruling, a widely-accepted Shia position; the specifics of how "nearest locality" is determined vary between mar&#x101;ji'.</p>
-        <p>"Nearest locality" admits more than one reading. We use <em>same longitude, nearest valid latitude</em>: it preserves local solar time and is the standard implementation in Shia-focused apps. Other valid readings include nearest great-circle valid point or nearest populated city with reliable times. Other high-latitude rulings altogether &mdash; <em>ni&#x1e63;f al-layl</em> (middle-of-night), <em>sub'iyya</em> (one-seventh), angle-based &mdash; produce different schedules and aren't shown here.</p>
+        <p>Inside the cap each pixel of the globe is shaded with the prayer color of its <em>same-longitude</em> projection point &mdash; the nearest valid latitude on the same longitude &mdash; so the caps continue the prayer bands smoothly across the threshold rather than dropping out. This visualization is method-agnostic: the colored bands inside the cap always reflect the same-longitude projection regardless of which high-latitude method drives the side panel.</p>
+        <p>The side panel's schedule, by contrast, follows the method you've selected via the <strong>settings gear</strong> in the top-right. Six methods are available:</p>
+        <ul class="how-to">
+          <li><strong>Aqrab al-bil&#x101;d &mdash; same longitude</strong> (default): the schedule of the same-longitude projection point. Teal pin/arc on the globe marks the projection.</li>
+          <li><strong>Aqrab al-bil&#x101;d &mdash; nearest city</strong>: snaps to the nearest populated city within &plusmn;5&deg; longitude. The pin moves to the city &mdash; that's where the schedule came from.</li>
+          <li><strong>Aqrab al-awq&#x101;t</strong>: walks backward day-by-day from today until a date when the sun reached all five thresholds at your exact location.</li>
+          <li><strong>Ni&#x1e63;f al-layl</strong> (middle of night): Isha at the midpoint of (Maghrib, next sunrise); Fajr from that midpoint.</li>
+          <li><strong>Sub'iyya</strong> (one-seventh): Isha at 1/7 of the night past Maghrib; Fajr at 1/7 before sunrise.</li>
+          <li><strong>Angle-based with seasonal reduction</strong>: standard &minus;16&deg;/&minus;14&deg; when reachable; otherwise eased toward the horizon.</li>
+        </ul>
+        <p>For methods 3&ndash;6 (aqrab al-awq&#x101;t and the three non-aqrab rulings) the teal pin is hidden &mdash; the schedule has no spatial projection point to mark &mdash; and the cap visualization on the globe is informational geometry only, distinct from the panel's times. The panel's descriptor line names the schedule source for each method.</p>
+        <p><em>Aqrab al-Bil&#x101;d</em> is a widely-accepted Shia position; the specifics of how "nearest locality" is determined vary between mar&#x101;ji'.</p>
 
         <h3>Behind the scenes</h3>
         <p>Sun position uses a simplified NOAA algorithm (~0.01&deg; accuracy); prayer windows are classified per pixel in a GLSL fragment shader, so the bands are smooth and continuous rather than a discretized grid. Side-panel times come from <a href="https://github.com/batoulapps/adhan-js" target="_blank" rel="noopener noreferrer">Adhan.js</a> with the same Ja'fari parameters; time zones via <code>tz-lookup</code>.</p>
