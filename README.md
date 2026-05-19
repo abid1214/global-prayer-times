@@ -116,6 +116,25 @@ tests/
   classifierAgreement.test.js
 ```
 
+## Known limitations
+
+Three deliberate trade-offs worth surfacing so future contributors don't unwittingly "fix" them and rediscover why they were deferred.
+
+### Curated city table (~80 entries)
+
+`src/data/highLatCities.js` is a hand-picked subset of well-known cities at \|lat\| ≥ 50°, not a complete dataset. The TODO at the top of the file points at swapping in Natural Earth `ne_10m_populated_places` filtered/capped at build time. Until that happens:
+
+- The **"aqrab al-bilād — nearest city"** method (method 2) may snap to a less-prominent city or fall back to same-longitude when no listed city is in the ±5° longitude window.
+- The **>200 km remote-projection `console.warn`** over-fires in sparsely-tabled regions (central Siberia, interior Canada, parts of Scandinavia north of the curated belt). Annoying in console logs but informative — it's accurate to "200 km from the nearest tabled city," not "200 km from the nearest real settlement."
+
+### Pin tooltip deferred
+
+The teal projection pin doesn't have a hover/tap label. The pin's *position* already carries the spatial information (where the schedule was computed), and the **panel descriptor line** carries the nominal information (`Method: aqrab al-bilād · times from Murmansk`). A tooltip would duplicate one or the other. If added later, do it as a general pin-tooltip feature so methods 1 and 2 both benefit, not a method-specific patch.
+
+### Panel times don't re-render with the scrubber
+
+The side panel's prayer times are computed once at panel-open time and stay frozen — moving the scrubber updates the globe coloring and the projection pin, but not the panel. The TODO marker at the scrubber callback in `src/main.js` documents this. Re-rendering on every scrubber tick would require either (a) a debounced tz-aware re-resolve or (b) caching tz per location; both have their own complications. Left for a future revisit when there's actual demand.
+
 ## Performance notes
 
 The render loop uses **dirty-flag rendering** — `renderer.render()` only fires when something actually changed (orbit input, scrubber, sun tick, animations). When the globe sits idle, GPU work drops to ~2 fps.
