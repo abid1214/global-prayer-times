@@ -69,6 +69,7 @@ function close() {
   // before pointerup), cancel the drag and clear the inline transform
   // so the CSS slide-out transition can actually run.
   if (drag) {
+    releasePointerCaptureSafe(drag.pointerId);
     panel.classList.remove("dragging");
     drag = null;
   }
@@ -130,6 +131,15 @@ function onKey(e) {
   if (e.key === "Tab") trapTab(e);
 }
 
+// Defensive release — pointer capture may already be implicitly
+// released (e.g., browser ended the gesture on pointercancel), in
+// which case releasePointerCapture throws. Swallow that case rather
+// than letting it propagate out of close()/endDrag.
+function releasePointerCaptureSafe(pointerId) {
+  if (pointerId == null) return;
+  try { handle.releasePointerCapture(pointerId); } catch (_) {}
+}
+
 // Focus trap. Primary mechanism is a Tab keydown handler that cycles
 // first ↔ last so both forward (Tab) and reverse (Shift+Tab) wrap
 // correctly within the dialog. focusin is a safety net for the
@@ -176,7 +186,11 @@ backdrop.addEventListener("click", close);
 // listeners are inert there. `drag` itself is declared above close()
 // so close() can clean it up if dismissed mid-drag.
 handle.addEventListener("pointerdown", (e) => {
-  drag = { startY: e.clientY, dy: 0 };
+  // pointerId stored so close() / endDrag can release capture later.
+  // Without this, an Escape mid-drag leaves the handle holding pointer
+  // capture until the next pointerup/cancel — subsequent pointer
+  // events get routed to it even though it's no longer in drag mode.
+  drag = { startY: e.clientY, dy: 0, pointerId: e.pointerId };
   panel.classList.add("dragging");
   handle.setPointerCapture(e.pointerId);
 });
@@ -187,6 +201,7 @@ handle.addEventListener("pointermove", (e) => {
 });
 function endDrag(commit) {
   if (!drag) return;
+  releasePointerCaptureSafe(drag.pointerId);
   panel.classList.remove("dragging");
   if (commit && drag.dy > 80) {
     // Clear the inline transform BEFORE close() so the CSS slide-out
