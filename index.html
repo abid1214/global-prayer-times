@@ -182,77 +182,89 @@
           <h3>High-latitude method</h3>
           <p class="group-hint">Active only inside the polar caps. Outside the caps, all options give identical schedules.</p>
 
-          <label class="method-option">
-            <input type="radio" name="polarMethod" value="aqrab_same_lon" />
-            <div class="method-body">
-              <span class="method-title">Aqrab al-bil&#x101;d &mdash; same longitude</span>
-              <span class="method-desc">Nearest valid latitude on the same longitude as you.</span>
-              <details class="learn-more">
-                <summary>Learn more</summary>
-                <p>Applies when the standard angle-based calculation fails &mdash; either when the sun never reaches Fajr's &minus;16&deg; angle, or during polar night when the sun never rises. Preserves your local solar time exactly, since the projection only changes latitude. Standard implementation in Shia-focused apps; may project into ocean or uninhabited terrain at extreme latitudes (consider "nearest city" in that case).</p>
-              </details>
-            </div>
-          </label>
+          <div class="method-option">
+            <label class="method-option-row">
+              <input type="radio" name="polarMethod" value="aqrab_same_lon" />
+              <span class="method-body">
+                <span class="method-title">Aqrab al-bil&#x101;d &mdash; same longitude</span>
+                <span class="method-desc">Nearest valid latitude on the same longitude as you.</span>
+              </span>
+            </label>
+            <details class="learn-more">
+              <summary>Learn more</summary>
+              <p>Applies when the standard angle-based calculation fails &mdash; either when the sun never reaches Fajr's &minus;16&deg; angle, or during polar night when the sun never rises. Preserves your local solar time exactly, since the projection only changes latitude. Standard implementation in Shia-focused apps; may project into ocean or uninhabited terrain at extreme latitudes (consider "nearest city" in that case).</p>
+            </details>
+          </div>
 
-          <label class="method-option">
-            <input type="radio" name="polarMethod" value="aqrab_nearest_city" />
-            <div class="method-body">
-              <span class="method-title">Aqrab al-bil&#x101;d &mdash; nearest city</span>
-              <span class="method-desc">Snap to the nearest populated city within &plusmn;5&deg; longitude that has valid times.</span>
-              <details class="learn-more">
-                <summary>Learn more</summary>
-                <p>Variant of aqrab al-bil&#x101;d that prefers a real settled locality (<em>balad</em>) over a same-longitude geographic point &mdash; closer to the fuqah&#x101;'s likely intent. Helpful when same-longitude projection lands in open ocean or uninhabited terrain. Falls back to same-longitude projection when no city is in window. The cap visualization on the globe continues to show the same-longitude projection; the side panel notes the city actually used.</p>
-              </details>
-            </div>
-          </label>
+          <div class="method-option">
+            <label class="method-option-row">
+              <input type="radio" name="polarMethod" value="aqrab_nearest_city" />
+              <span class="method-body">
+                <span class="method-title">Aqrab al-bil&#x101;d &mdash; nearest city</span>
+                <span class="method-desc">Snap to the nearest populated city within &plusmn;5&deg; longitude that has valid times.</span>
+              </span>
+            </label>
+            <details class="learn-more">
+              <summary>Learn more</summary>
+              <p>Variant of aqrab al-bil&#x101;d that prefers a real settled locality (<em>balad</em>) over a same-longitude geographic point &mdash; closer to the fuqah&#x101;'s likely intent. Helpful when same-longitude projection lands in open ocean or uninhabited terrain. Falls back to same-longitude projection when no city is in window. The cap visualization on the globe continues to show the same-longitude projection; the side panel notes the city actually used.</p>
+            </details>
+          </div>
 
-          <label class="method-option">
-            <input type="radio" name="polarMethod" value="aqrab_al_awqat" />
-            <div class="method-body">
-              <span class="method-title">Aqrab al-awq&#x101;t</span>
-              <span class="method-desc">Use the prayer times from the most recent date at your exact location when all signs were observable.</span>
-              <details class="learn-more">
-                <summary>Learn more</summary>
-                <p>Steps backward day-by-day from today (up to 90 days) until a date is found when the sun reached all five prayer-window thresholds at your location. If none in 90 days (very deep polar regime), falls back to middle-of-night. Side panel notes which historical date is in use. The cap visualization still shows the present sun's same-longitude projection.</p>
-              </details>
-            </div>
-          </label>
+          <div class="method-option">
+            <label class="method-option-row">
+              <input type="radio" name="polarMethod" value="aqrab_al_awqat" />
+              <span class="method-body">
+                <span class="method-title">Aqrab al-awq&#x101;t</span>
+                <span class="method-desc">Use the prayer times from the most recent date at your exact location when all signs were observable.</span>
+              </span>
+            </label>
+            <details class="learn-more">
+              <summary>Learn more</summary>
+              <p>Steps backward day-by-day from today (up to 90 days) until a date is found when the sun reached all five prayer-window thresholds at your location. If none in 90 days (very deep polar regime), falls back to middle-of-night. Side panel notes which historical date is in use. The cap visualization still shows the present sun's same-longitude projection.</p>
+            </details>
+          </div>
 
-          <label class="method-option">
-            <input type="radio" name="polarMethod" value="midnight" />
-            <div class="method-body">
-              <span class="method-title">Ni&#x1e63;f al-layl &mdash; middle of night</span>
-              <span class="method-desc">Isha at midpoint between Maghrib and the next sunrise; Fajr from that midpoint.</span>
-              <details class="learn-more">
-                <summary>Learn more</summary>
-                <p>Standard high-latitude rule when the sun doesn't reach Fajr's &minus;16&deg; angle. Defines a <em>shar'&#x12b;</em> midnight as the midpoint of the night; both Isha and Fajr anchor to it. In deep polar summer this collapses Isha and Fajr to the same instant &mdash; the side panel will display them as such.</p>
-              </details>
-            </div>
-          </label>
+          <div class="method-option">
+            <label class="method-option-row">
+              <input type="radio" name="polarMethod" value="midnight" />
+              <span class="method-body">
+                <span class="method-title">Ni&#x1e63;f al-layl &mdash; middle of night</span>
+                <span class="method-desc">Isha at midpoint between Maghrib and the next sunrise; Fajr from that midpoint.</span>
+              </span>
+            </label>
+            <details class="learn-more">
+              <summary>Learn more</summary>
+              <p>Standard high-latitude rule when the sun doesn't reach Fajr's &minus;16&deg; angle. Defines a <em>shar'&#x12b;</em> midnight as the midpoint of the night; both Isha and Fajr anchor to it. In deep polar summer this collapses Isha and Fajr to the same instant &mdash; the side panel will display them as such.</p>
+            </details>
+          </div>
 
-          <label class="method-option">
-            <input type="radio" name="polarMethod" value="seventh" />
-            <div class="method-body">
-              <span class="method-title">Sub'iyya &mdash; one-seventh</span>
-              <span class="method-desc">Isha at 1/7 of the night past Maghrib; Fajr at 1/7 before sunrise.</span>
-              <details class="learn-more">
-                <summary>Learn more</summary>
-                <p>Symmetric high-latitude rule used by several Sunni and Shia conventions. Divides the night into seven equal parts: Isha starts after the first seventh, Fajr starts before the last seventh. The middle five-sevenths fall within Isha's <em>waqt</em>.</p>
-              </details>
-            </div>
-          </label>
+          <div class="method-option">
+            <label class="method-option-row">
+              <input type="radio" name="polarMethod" value="seventh" />
+              <span class="method-body">
+                <span class="method-title">Sub'iyya &mdash; one-seventh</span>
+                <span class="method-desc">Isha at 1/7 of the night past Maghrib; Fajr at 1/7 before sunrise.</span>
+              </span>
+            </label>
+            <details class="learn-more">
+              <summary>Learn more</summary>
+              <p>Symmetric high-latitude rule used by several Sunni and Shia conventions. Divides the night into seven equal parts: Isha starts after the first seventh, Fajr starts before the last seventh. The middle five-sevenths fall within Isha's <em>waqt</em>.</p>
+            </details>
+          </div>
 
-          <label class="method-option">
-            <input type="radio" name="polarMethod" value="angle_reduced" />
-            <div class="method-body">
-              <span class="method-title">Angle-based with seasonal reduction</span>
-              <span class="method-desc">Keep &minus;16&deg;/&minus;14&deg; when reachable; otherwise ease toward the horizon as the season requires.</span>
-              <details class="learn-more">
-                <summary>Learn more</summary>
-                <p>Uses the standard Ja'fari angles when the sun reaches them. When the sun's minimum altitude is shallower than &minus;16&deg; (Fajr) or &minus;14&deg; (Isha), the threshold is reduced to whatever the sun actually achieves at solar midnight, so Fajr and Isha remain defined as long as the sun crosses the apparent horizon at some point during the day. In polar day (sun never sets) the method falls back to <em>ni&#x1e63;f al-layl</em>, whose own polar-summer handling applies. Converges to the standard rule when conditions allow.</p>
-              </details>
-            </div>
-          </label>
+          <div class="method-option">
+            <label class="method-option-row">
+              <input type="radio" name="polarMethod" value="angle_reduced" />
+              <span class="method-body">
+                <span class="method-title">Angle-based with seasonal reduction</span>
+                <span class="method-desc">Keep &minus;16&deg;/&minus;14&deg; when reachable; otherwise ease toward the horizon as the season requires.</span>
+              </span>
+            </label>
+            <details class="learn-more">
+              <summary>Learn more</summary>
+              <p>Uses the standard Ja'fari angles when the sun reaches them. When the sun's minimum altitude is shallower than &minus;16&deg; (Fajr) or &minus;14&deg; (Isha), the threshold is reduced to whatever the sun actually achieves at solar midnight, so Fajr and Isha remain defined as long as the sun crosses the apparent horizon at some point during the day. In polar day (sun never sets) the method falls back to <em>ni&#x1e63;f al-layl</em>, whose own polar-summer handling applies. Converges to the standard rule when conditions allow.</p>
+            </details>
+          </div>
         </section>
       </aside>
     </div>

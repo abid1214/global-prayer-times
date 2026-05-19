@@ -196,6 +196,51 @@ try {
       });
     }
   }
+
+  // ---- crossDay projection invariant ----
+  // Direct test of classifyByClock's crossDay path. Adhan can return
+  // a prayer time on the previous UTC calendar day at high latitudes
+  // (longitude puts solar antimeridian before UTC midnight). The
+  // dhuhr-anchored projection in classifyByClock must preserve the
+  // schedule's internal ordering across that boundary, otherwise the
+  // band walker labels every daylight hour as pre-dawn. The
+  // chronological-ordering fixture above doesn't catch this — it
+  // checks the times object that getTimesForLocation returns, not
+  // classifyByClock's internal projected sequence.
+  const xdayTimes = {
+    fajr:    new Date("2025-10-25T22:00:00Z"),  // ← prev UTC day
+    sunrise: new Date("2025-10-26T02:00:00Z"),
+    dhuhr:   new Date("2025-10-26T10:00:00Z"),
+    asr:     new Date("2025-10-26T14:00:00Z"),
+    maghrib: new Date("2025-10-26T19:00:00Z"),
+    isha:    new Date("2025-10-26T22:00:00Z"),
+  };
+  // After dhuhr-anchored projection the schedule should map to:
+  //   fajr    → today−1 22:00   (was prev-UTC-day in source)
+  //   sunrise → today    02:00
+  //   dhuhr   → today    10:00
+  //   asr     → today    14:00
+  //   maghrib → today    19:00
+  //   isha    → today    22:00
+  // Pre-fix per-time setUTCFullYear projection would have placed
+  // fajr at today 22:00 (after sunrise's 02:00), breaking the
+  // walker. The 12:00 case is the critical regression catcher:
+  // pre-fix it returned "none" because t<fajr@22:00; post-fix it
+  // returns "dhuhr".
+  const expectations = [
+    // now (UTC)              → expected band
+    ["2026-05-19T00:00:00Z",     "fajr"],     // between fajr (yest 22:00) and sunrise (02:00)
+    ["2026-05-19T08:00:00Z",     "none"],     // post-sunrise, pre-dhuhr morning gap
+    ["2026-05-19T12:00:00Z",     "dhuhr"],    // ← the bug-catcher
+    ["2026-05-19T15:00:00Z",     "asr"],
+    ["2026-05-19T20:00:00Z",     "maghrib"],
+  ];
+  for (const [nowIso, expected] of expectations) {
+    test(`[crossDay] fajr-on-prev-UTC-day @ ${nowIso.slice(11, 16)}Z — band = ${expected}`, () => {
+      const band = classifyByClock(xdayTimes, new Date(nowIso), { crossDay: true });
+      assertEq(band, expected, "crossDay band");
+    });
+  }
 } finally {
   // setMethod() restores settings.js's in-memory cache (so any
   // post-test getMethod() returns the original choice). Then

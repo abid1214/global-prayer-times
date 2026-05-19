@@ -154,14 +154,34 @@ export function classifyByClock(times, now, opts = {}) {
   // ≈ 22:46 UTC the day before the panel date, due to longitude
   // offset placing solar antimeridian before UTC midnight). Day-
   // projecting that would produce a phantom-late fajr.
-  const project = opts.crossDay
-    ? (d) => {
-        if (!d || !Number.isFinite(d.getTime())) return NaN;
-        const out = new Date(d);
-        out.setUTCFullYear(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-        return out.getTime();
-      }
-    : (d) => (d && Number.isFinite(d.getTime()) ? d.getTime() : NaN);
+  // crossDay projection: don't setUTCFullYear per-time. Adhan can
+  // legitimately place fajr on the day BEFORE the schedule's
+  // calendar date (longitude offset puts solar antimeridian before
+  // UTC midnight at high lat). Per-time projection collapses that
+  // structure: fajr@22:00 prev-UTC-day projects to today 22:00,
+  // sunrise@02:00 same-UTC-day projects to today 02:00 — now
+  // fajr > sunrise after projection, and the band walker treats
+  // every daylight hour as pre-dawn.
+  //
+  // Instead, anchor on dhuhr (solar transit; near-always-valid and
+  // safely mid-day) and propagate the offset to every other time.
+  // The schedule's internal structure is preserved exactly,
+  // independent of which UTC day each threshold originally landed
+  // on. Falls back to fajr as anchor if dhuhr is missing; falls
+  // back to raw absolute compare if neither is finite.
+  const anchorSrc =
+    (times.dhuhr && Number.isFinite(times.dhuhr.getTime())) ? times.dhuhr :
+    (times.fajr  && Number.isFinite(times.fajr.getTime()))  ? times.fajr  :
+    null;
+  let project;
+  if (opts.crossDay && anchorSrc) {
+    const anchorProj = new Date(anchorSrc);
+    anchorProj.setUTCFullYear(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const delta = anchorProj.getTime() - anchorSrc.getTime();
+    project = (d) => (d && Number.isFinite(d.getTime()) ? d.getTime() + delta : NaN);
+  } else {
+    project = (d) => (d && Number.isFinite(d.getTime()) ? d.getTime() : NaN);
+  }
   const fajr    = project(times.fajr);
   const sunrise = project(times.sunrise);
   const dhuhr   = project(times.dhuhr);

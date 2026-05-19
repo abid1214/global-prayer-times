@@ -499,17 +499,19 @@ html, body {
 }
 
 .method-option {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
   padding: 10px 8px;
   margin: 0 -8px;
   border-radius: 6px;
-  cursor: pointer;
   transition: background 0.12s;
 }
 .method-option:hover { background: rgba(255,255,255,0.04); }
-.method-option input[type="radio"] {
+.method-option-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+.method-option-row input[type="radio"] {
   margin-top: 3px;
   accent-color: var(--accent);
   flex-shrink: 0;
@@ -532,6 +534,10 @@ html, body {
 }
 .learn-more {
   margin-top: 4px;
+  /* Indent past the radio + flex gap so "Learn more" aligns with the
+     title/description text above it. Match .method-option-row's input
+     width (~16px) + gap (10px). */
+  margin-left: 26px;
   font-size: 11px;
 }
 .learn-more > summary {
