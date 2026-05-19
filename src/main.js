@@ -429,7 +429,14 @@ function setProjectionViz(actualLatDeg, actualLonDeg, targetLatDeg, targetLonDeg
   }
   const A = new THREE.Vector3(...latLonToVec3((actualLatDeg * Math.PI) / 180, (actualLonDeg * Math.PI) / 180));
   const B = new THREE.Vector3(...latLonToVec3(latRadTgt, lonRadTgt));
-  if (A.distanceTo(B) < 0.001) return;
+  if (A.distanceTo(B) < 0.001) {
+    // No arc to draw, but the pin's position/visibility above may
+    // have changed (e.g., method switch landed the pin essentially
+    // on the user's actual lat). Dirty the scene so the change
+    // shows up under the dirty-flag render loop.
+    markDirty();
+    return;
+  }
   const omega = Math.acos(Math.max(-1, Math.min(1, A.dot(B))));
   const sinOmega = Math.sin(omega);
   const N = 32;

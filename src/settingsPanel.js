@@ -126,20 +126,44 @@ function scheduleHide() {
 }
 
 function onKey(e) {
-  if (e.key === "Escape") close();
+  if (e.key === "Escape") { close(); return; }
+  if (e.key === "Tab") trapTab(e);
 }
 
-// Focus trap: if focus tries to move outside the dialog while it's
-// open (e.g., user tabs off the last focusable), bounce it back to
-// the first focusable inside. role="dialog" + aria-modal="true" on
-// the panel markup tells AT this is a modal context.
+// Focus trap. Primary mechanism is a Tab keydown handler that cycles
+// first ↔ last so both forward (Tab) and reverse (Shift+Tab) wrap
+// correctly within the dialog. focusin is a safety net for the
+// uncommon case where something else moves focus outside the panel
+// (programmatic focus call, non-Tab key); it pulls focus back to the
+// dialog but doesn't try to guess direction.
+function focusableEls() {
+  return Array.from(panel.querySelectorAll(
+    'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
+  )).filter((el) => !el.hidden && el.offsetParent !== null);
+}
+
+function trapTab(e) {
+  if (!isOpen || e.key !== "Tab") return;
+  const els = focusableEls();
+  if (els.length === 0) return;
+  const first = els[0];
+  const last = els[els.length - 1];
+  const active = document.activeElement;
+  if (e.shiftKey && (active === first || !panel.contains(active))) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && (active === last || !panel.contains(active))) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
 function trapFocus(e) {
   if (!isOpen) return;
   if (panel.contains(e.target)) return;
-  const focusable = panel.querySelector(
-    'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
-  );
-  if (focusable) focusable.focus();
+  // Safety net only — Tab cycling is handled by trapTab.
+  const els = focusableEls();
+  if (els.length) els[0].focus();
 }
 
 openBtn.addEventListener("click", open);
