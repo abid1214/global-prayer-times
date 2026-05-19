@@ -254,7 +254,13 @@ function buildResult({ latDeg, lonDeg, date, times, polarMethod, classifyMode })
 // (lat→0.1°, lon→0.1°, todayKey) → Date | null. Cache because the walk
 // can iterate up to 90 days; without caching the panel would re-walk on
 // every scrubber tick.
+//
+// Bounded LRU via Map's insertion-order property: at cap, evict the
+// oldest entry on every new insert. ~2 KB at cap (key strings + Date
+// references), bounded across long sessions that span many days and
+// many locations.
 const _awqatCache = new Map();
+const AWQAT_CACHE_CAP = 256;
 const AWQAT_MAX_BACK_DAYS = 90;
 
 function walkBackForValidDay(latDeg, lonDeg, date) {
@@ -262,18 +268,39 @@ function walkBackForValidDay(latDeg, lonDeg, date) {
   for (let i = 1; i <= AWQAT_MAX_BACK_DAYS; i++) {
     const trial = addDays(date, -i);
     const t = computeAdhanAt(latDeg, lonDeg, trial, params);
-    if (isValidDate(t.fajr) && isValidDate(t.sunrise) && isValidDate(t.dhuhr)
-        && isValidDate(t.asr) && isValidDate(t.maghrib) && isValidDate(t.isha)) {
-      return trial;
+    if (!(isValidDate(t.fajr) && isValidDate(t.sunrise) && isValidDate(t.dhuhr)
+        && isValidDate(t.asr) && isValidDate(t.maghrib) && isValidDate(t.isha))) {
+      continue;
     }
+    // Non-NaN isn't enough: at marginal polar dates (e.g., Oct 26 at
+    // 78°N, where the sun barely crosses the apparent horizon) adhan
+    // can return six "valid" Dates that are internally out of order
+    // (asr before dhuhr, or isha before asr) due to its
+    // HighLatitudeRule defaults firing for some thresholds and not
+    // others. Require strict chronological ordering so the historical
+    // schedule we hand to the panel walker is actually coherent.
+    const a = t.fajr.getTime(), b = t.sunrise.getTime(), c = t.dhuhr.getTime();
+    const d = t.asr.getTime(),  e = t.maghrib.getTime(), f = t.isha.getTime();
+    if (a < b && b < c && c < d && d < e && e < f) return trial;
   }
   return null;
 }
 
 function findRecentValidDate(latDeg, lonDeg, date) {
   const key = `${latDeg.toFixed(1)}:${lonDeg.toFixed(1)}:${dayKey(date)}`;
-  if (_awqatCache.has(key)) return _awqatCache.get(key);
+  if (_awqatCache.has(key)) {
+    // Refresh insertion order for LRU semantics.
+    const v = _awqatCache.get(key);
+    _awqatCache.delete(key);
+    _awqatCache.set(key, v);
+    return v;
+  }
   const result = walkBackForValidDay(latDeg, lonDeg, date);
+  if (_awqatCache.size >= AWQAT_CACHE_CAP) {
+    // Map iterates in insertion order; first key is the oldest.
+    const oldest = _awqatCache.keys().next().value;
+    _awqatCache.delete(oldest);
+  }
   _awqatCache.set(key, result);
   return result;
 }
@@ -325,14 +352,20 @@ function midnightTimes(latDeg, lonDeg, date, params) {
   const tSunrise  = today.sunrise;
   const nextRise  = tomorrow.sunrise;
 
-  let fajr = today.fajr;
-  let isha = today.isha;
-  if (isValidDate(yMaghrib) && isValidDate(tSunrise)) {
-    fajr = new Date((yMaghrib.getTime() + tSunrise.getTime()) / 2);
-  }
-  if (isValidDate(tMaghrib) && isValidDate(nextRise)) {
-    isha = new Date((tMaghrib.getTime() + nextRise.getTime()) / 2);
-  }
+  // When the night anchors are missing (deep polar night/day where
+  // neither Maghrib nor sunrise occur), return NaN rather than falling
+  // back to today.fajr/today.isha — those values come from adhan's
+  // internal HighLatitudeRule default, which doesn't share semantics
+  // with this method and can produce times out of chronological order
+  // with adhan's other outputs (e.g., isha before asr at Longyearbyen
+  // in December). NaN propagates cleanly through classifyByClock's
+  // ordered walk and the panel's "—" display.
+  const fajr = (isValidDate(yMaghrib) && isValidDate(tSunrise))
+    ? new Date((yMaghrib.getTime() + tSunrise.getTime()) / 2)
+    : new Date(NaN);
+  const isha = (isValidDate(tMaghrib) && isValidDate(nextRise))
+    ? new Date((tMaghrib.getTime() + nextRise.getTime()) / 2)
+    : new Date(NaN);
 
   return buildResult({
     latDeg, lonDeg, date,
@@ -367,8 +400,12 @@ function seventhTimes(latDeg, lonDeg, date, params) {
   const tSunrise = today.sunrise;
   const nextRise = tomorrow.sunrise;
 
-  let fajr = today.fajr;
-  let isha = today.isha;
+  // See midnightTimes for the rationale: missing anchors → NaN
+  // rather than today.fajr / today.isha (which come from adhan's
+  // internal HighLatitudeRule default and don't share semantics
+  // with this method).
+  let fajr = new Date(NaN);
+  let isha = new Date(NaN);
   if (isValidDate(yMaghrib) && isValidDate(tSunrise)) {
     const lastNightLen = tSunrise.getTime() - yMaghrib.getTime();
     fajr = new Date(tSunrise.getTime() - lastNightLen / 7);
@@ -413,6 +450,10 @@ function angleReducedTimes(latDeg, lonDeg, date, params) {
   // midnight rule, which has its own polar-summer handling.
   const APPARENT_HORIZON_DEG = -50 / 60;
   if (sunMinDeg > APPARENT_HORIZON_DEG) {
+    // CROSS-METHOD DEPENDENCY: a bug in midnightTimes silently
+    // corrupts this method's polar-day output. The ordering
+    // invariant in tests/classifierAgreement.test.js covers
+    // midnightTimes directly, which catches both sites.
     return midnightTimes(latDeg, lonDeg, date, params);
   }
   const fajrAngleDeg = Math.min(16, Math.max(0, -sunMinDeg));
@@ -428,6 +469,21 @@ function angleReducedTimes(latDeg, lonDeg, date, params) {
   reduced.fajrAngle = fajrAngleDeg;
   reduced.ishaAngle = ishaAngleDeg;
   const t = computeAdhanAt(latDeg, lonDeg, date, reduced);
+
+  // At deep polar night the sun's max altitude can be more negative
+  // than the asr threshold (~0°), so adhan still returns a clamped
+  // value for asr — but the resulting isha (at the reduced angle)
+  // can land BEFORE asr, violating chronological order. Detect that
+  // and fall back to midnight, which returns NaN for fajr/isha when
+  // anchors are missing and stays cleanly ordered.
+  const mTime = anchorMaghrib(t);
+  const ordered = isValidDate(t.fajr) && isValidDate(t.sunrise) && isValidDate(t.dhuhr)
+    && isValidDate(t.asr) && isValidDate(mTime) && isValidDate(t.isha)
+    && t.fajr < t.sunrise && t.sunrise < t.dhuhr && t.dhuhr < t.asr
+    && t.asr < mTime && mTime < t.isha;
+  if (!ordered) {
+    return midnightTimes(latDeg, lonDeg, date, params);
+  }
 
   return buildResult({
     latDeg, lonDeg, date,
@@ -514,6 +570,8 @@ export function getTimesForLocation(latDeg, lonDeg, date = new Date()) {
       const validDate = findRecentValidDate(latDeg, lonDeg, date);
       if (!validDate) {
         // Per spec: cap walk at 90 days; fall through to midnight.
+        // CROSS-METHOD DEPENDENCY: a bug in midnightTimes silently
+        // corrupts this method's deep-polar fallback output.
         return midnightTimes(latDeg, lonDeg, date, params);
       }
       const t = computeAdhanAt(latDeg, lonDeg, validDate, params);

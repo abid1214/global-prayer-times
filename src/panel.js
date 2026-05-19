@@ -276,17 +276,6 @@ function fmtLat(lat) {
   return `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}`;
 }
 
-function fmtShortDate(d, tz) {
-  if (tz?.kind === "iana") {
-    return new Intl.DateTimeFormat([], {
-      month: "short", day: "numeric", year: "numeric", timeZone: tz.iana,
-    }).format(d);
-  }
-  return new Intl.DateTimeFormat([], {
-    month: "short", day: "numeric", year: "numeric", timeZone: "UTC",
-  }).format(d);
-}
-
 // UTC-only short-date formatter, used for derivedFromDate (aqrab
 // al-awqāt's "schedule from {date}"). That's a date-only concept
 // stored as a Date-at-UTC-noon — formatting it in an IANA timezone

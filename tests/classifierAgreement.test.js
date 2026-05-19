@@ -84,6 +84,39 @@ function assertEq(actual, expected, msg) {
   if (actual !== expected) throw new Error(`${msg}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
 
+// Strict chronological-ordering invariant. classifyByClock walks the
+// six prayer thresholds in the order fajr → sunrise → dhuhr → asr →
+// maghrib → isha, so the returned times MUST satisfy that ordering as
+// Date instants. NaN markers (legitimately produced at extreme
+// latitudes for some methods) are skipped — the prior band absorbs
+// the gap — but any finite pair out of order is a real bug that
+// silently corrupts the "Now in" indicator.
+//
+// This invariant was added after a midnightTimes regression placed
+// today's "fajr" at the upcoming-night midpoint (an EVENING value,
+// after sunrise/dhuhr/asr on the same day). The bug propagated to
+// AQRAB_AL_AWQAT and ANGLE_REDUCED via their midnight fallback paths
+// and the 150-fixture tripwire missed it because diverging-method
+// tests only smoke-check no-throw. This assertion would have failed
+// loudly. Pattern: every real bug that escapes the suite turns into
+// a permanent invariant here.
+function assertChronological(times) {
+  const ORDER = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"];
+  let prev = null;
+  let prevName = null;
+  for (const name of ORDER) {
+    const t = times[name];
+    if (!t || !Number.isFinite(t.getTime())) continue;  // legitimate NaN gap
+    if (prev !== null && t.getTime() <= prev) {
+      throw new Error(
+        `out of order: ${name}=${t.toISOString()} ≤ ${prevName}=${new Date(prev).toISOString()}`
+      );
+    }
+    prev = t.getTime();
+    prevName = name;
+  }
+}
+
 // Pull the reference (lat, lon) used to compute the schedule. For
 // SAME_LON it's the projected latitude on the user's longitude; for
 // NEAREST_CITY it's the snapped city's coordinates (or the projection
@@ -149,6 +182,19 @@ try {
         });
       }
     }
+
+    // Ordering invariant — one test per (method, fixture) cell.
+    // Asserts the six returned times are strictly chronological as
+    // Dates. NaN markers are skipped (see assertChronological). This
+    // is the test that would have caught the midnightTimes regression
+    // where today's "fajr" landed in the evening.
+    for (const method of [...AGREEING_METHODS, ...DIVERGING_METHODS]) {
+      setMethod(method);
+      const times = getTimesForLocation(fx.lat, fx.lon, base);
+      test(`[${method}] ${fx.name} — chronological ordering`, () => {
+        assertChronological(times);
+      });
+    }
   }
 } finally {
   // setMethod() restores settings.js's in-memory cache (so any
@@ -176,7 +222,10 @@ for (const r of results) {
   el.appendChild(line);
   if (!r.ok) nFail++;
 }
-const summary = document.createElement("div");
+// #results is a <pre> (phrasing-content container), so the summary
+// must be a <span> not a <div> — a block-level child inside <pre> is
+// invalid HTML and can render inconsistently across browsers.
+const summary = document.createElement("span");
 summary.className = "summary " + (nFail === 0 ? "pass" : "fail");
 summary.textContent = `\n${results.length - nFail}/${results.length} passed`
                     + (nFail ? `  (${nFail} failed)` : "");
