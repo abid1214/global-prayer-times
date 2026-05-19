@@ -114,21 +114,21 @@ const FRAG = /* glsl */ `
     // the divergence (see describePolarMethod in src/panel.js).
     const float FAJR_LIMIT = 74.0 * PI / 180.0;                 // Fajr fails beyond this
     const float DAY_LIMIT  = (90.0 + 50.0 / 60.0) * PI / 180.0; // polar night beyond this (apparent horizon)
-    // See SAFE_MARGIN_DEG comment in src/prayer.js: pulls the projection
-    // target ~5.5 km inside the cap so Adhan's correctedHourAngle has
-    // numerical room (~5× double-precision tolerance from the cosH=±1
-    // singularity). Mirrored here so the shader's same-longitude
-    // projection lands at exactly the same latitude the panel uses.
+    // Cap membership uses the TRUE threshold (matches aqrabProjection
+    // in src/prayer.js exactly). SAFE_MARGIN — see SAFE_MARGIN_DEG
+    // comment in src/prayer.js — applies ONLY to the projection target
+    // when we ARE in the cap, giving Adhan numerical room from the
+    // cosH=±1 singularity without expanding the cap into latitudes
+    // where the standard calc still works.
     const float SAFE_MARGIN = 0.05 * PI / 180.0;
-    float northThresh = min(FAJR_LIMIT - decl, DAY_LIMIT + decl) - SAFE_MARGIN;
-    float southThresh = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl) + SAFE_MARGIN;
-    // Hard-clamp effLat to the cap edge so the shader matches
-    // aqrabProjection() in src/prayer.js exactly (the panel and the
-    // globe agree at every pixel, with no transition-band disagreement).
-    // effLat is C⁰ continuous at the threshold but its derivative
-    // jumps; the ~5° smoothstep bands on each prayer window below mask
-    // that kink in the rendered band shapes.
-    float effLat = clamp(lat, southThresh, northThresh);
+    float northTrue = min(FAJR_LIMIT - decl, DAY_LIMIT + decl);
+    float southTrue = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl);
+    // effLat C⁰-jumps by SAFE_MARGIN at the threshold (~5.5 km / sub-
+    // pixel at any reasonable zoom); the ~5° smoothstep bands on each
+    // prayer window below absorb that step in the rendered band shapes.
+    float effLat = lat;
+    if (lat > northTrue) effLat = northTrue - SAFE_MARGIN;
+    else if (lat < southTrue) effLat = southTrue + SAFE_MARGIN;
     // Effective normal at (effLat, lonP). Below the cap this equals n; inside
     // the cap it's the normal of the projection point, so all sun-relative
     // math below (altitude, asr, midnight) reflects the projected schedule.

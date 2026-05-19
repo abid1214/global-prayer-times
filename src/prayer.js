@@ -59,10 +59,15 @@ const SAFE_MARGIN_DEG = 0.05;
 export function aqrabProjection(latDeg, date = new Date()) {
   const { declination } = sunPosition(date);
   const declDeg = (declination * 180) / Math.PI;
-  const northThresh = Math.min(FAJR_LIMIT_DEG - declDeg, DAY_LIMIT_DEG + declDeg) - SAFE_MARGIN_DEG;
-  const southThresh = Math.max(-FAJR_LIMIT_DEG - declDeg, -DAY_LIMIT_DEG + declDeg) + SAFE_MARGIN_DEG;
-  if (latDeg > northThresh) return { projectedFromLat: northThresh };
-  if (latDeg < southThresh) return { projectedFromLat: southThresh };
+  // Cap membership uses the TRUE threshold — a user at the boundary
+  // latitude has computable times and should not be forced into the
+  // projection. SAFE_MARGIN_DEG applies only to the projection target
+  // so Adhan's correctedHourAngle has numerical headroom from the
+  // cosH = ±1 singularity when we DO project.
+  const northTrue = Math.min(FAJR_LIMIT_DEG - declDeg, DAY_LIMIT_DEG + declDeg);
+  const southTrue = Math.max(-FAJR_LIMIT_DEG - declDeg, -DAY_LIMIT_DEG + declDeg);
+  if (latDeg > northTrue) return { projectedFromLat: northTrue - SAFE_MARGIN_DEG };
+  if (latDeg < southTrue) return { projectedFromLat: southTrue + SAFE_MARGIN_DEG };
   return null;
 }
 
@@ -154,28 +159,41 @@ export function classifyByClock(times, now, opts = {}) {
   const maghrib = project(times.maghrib);
   const isha    = project(times.isha);
 
-  // Walk the day forward in band order. Each band starts at its threshold
-  // and continues until the next valid threshold. NaN markers (degenerate
-  // method outputs at extreme latitudes) are skipped so the prior band
-  // extends through the gap.
-  if (Number.isFinite(fajr)    && t < fajr)    return "none";  // pre-dawn
-  if (Number.isFinite(sunrise) && t < sunrise) return "fajr";
-  if (Number.isFinite(dhuhr)   && t < dhuhr)   return "none";  // morning
-  if (Number.isFinite(asr)     && t < asr)     return "dhuhr";
-  if (Number.isFinite(maghrib) && t < maghrib) return "asr";
-  if (Number.isFinite(isha)    && t < isha)    return "maghrib";
+  // Walk the day forward. Each entry is the threshold at which a band
+  // starts; the previous band extends until t reaches that threshold.
+  // NaN thresholds are skipped — the previous band absorbs the gap.
+  // E.g., if fajr is NaN, "none" extends until sunrise (no "fajr"
+  // band today); if sunrise is NaN, "fajr" extends until dhuhr (no
+  // "none" morning gap). This matches the behavior the comment used
+  // to claim but the old hard-coded comparisons didn't actually
+  // implement — at extreme latitudes adhan can return NaN for
+  // sunrise or maghrib and the previous form mislabeled the band.
+  const BANDS = [
+    [fajr,    "fajr"],
+    [sunrise, "none"],    // post-sunrise, pre-Dhuhr morning gap
+    [dhuhr,   "dhuhr"],
+    [asr,     "asr"],
+    [maghrib, "maghrib"],
+    [isha,    "isha"],
+  ];
+  let band = "none";  // default before any threshold has fired
+  for (const [threshold, label] of BANDS) {
+    if (!Number.isFinite(threshold)) continue;
+    if (t < threshold) return band;
+    band = label;
+  }
 
-  // After Isha's listed time, walk to shar'ī midnight (canonical
+  // Past Isha's listed time. Walk to shar'ī midnight (canonical
   // Ja'fari: midpoint of Maghrib → next-day Fajr). The times object
   // only carries today's data, so we approximate next-day Fajr as
   // today's Fajr + 24h. The true value drifts by ≤1 min/day from
   // equation-of-time and declination changes — well below the
   // 5-minute resolution at which any band edge matters here.
-  if (Number.isFinite(maghrib) && Number.isFinite(fajr)) {
+  if (band === "isha" && Number.isFinite(maghrib) && Number.isFinite(fajr)) {
     const midnight = maghrib + ((fajr + 86400000) - maghrib) / 2;
     if (t >= midnight) return "none";  // Isha's waqt has ended, pre-next-Fajr
   }
-  return "isha";  // still in Isha's waqt
+  return band;
 }
 
 // ---------- buildResult ----------

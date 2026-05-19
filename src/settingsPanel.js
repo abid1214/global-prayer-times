@@ -13,50 +13,54 @@ const backdrop = document.getElementById("settingsBackdrop");
 const handle  = document.getElementById("settingsHandle");
 const radios  = document.querySelectorAll('input[name="polarMethod"]');
 
-// Pending state tracked so rapid open/close cycles don't leak listeners
-// or race each other:
-//   • hideTimeout — close's post-transition overlay.hidden=true; cleared
-//     on open() so a quick re-open doesn't get yanked out of layout
-//   • openRaf    — the requestAnimationFrame that adds .open after the
-//     layout commits hidden=false; cleared on close() so a quick close
-//     can't be undone by a queued RAF
-//   • isOpen     — guards open() and close() against duplicate work
-//     (re-clicking the gear would otherwise re-register the keydown
-//     listener every time)
-let hideTimeout = null;
+// Pending state so rapid open/close cycles don't leak listeners or
+// race each other:
+//   • pendingHide  — transitionend listener + safety-timeout cleanup
+//     that flips overlay.hidden=true after the slide-out finishes.
+//     Cancelled on re-open so the overlay doesn't get yanked out of
+//     layout under an open panel.
+//   • openRaf      — RAF that adds .open after the layout commits
+//     hidden=false. Cancelled on close so a quick close can't be
+//     undone by a queued RAF.
+//   • isOpen       — guards open()/close() against duplicate work.
+//   • previousFocus — the element focused when the dialog opened, so
+//     close() can restore it (aria-modal expectation).
+let pendingHide = null;
 let openRaf = null;
 let isOpen = false;
+let previousFocus = null;
 // Drag state for the mobile bottom-sheet's swipe-down handle.
 // Declared up here so close() can cancel it if the panel is dismissed
-// mid-drag (e.g., Escape key fires while the user's finger is still
-// down) — otherwise the inline transform set during pointermove would
-// override the CSS slide-out transform.
+// mid-drag — otherwise the inline transform set during pointermove
+// would override the CSS slide-out transform.
 let drag = null;
 
 function open() {
   if (isOpen) return;
   isOpen = true;
-  if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
+  if (pendingHide) { pendingHide.cancel(); pendingHide = null; }
+  previousFocus = document.activeElement;
   overlay.hidden = false;
   // Allow the layout to commit hidden=false before adding .open so
   // the slide-in transition fires on first open.
   openRaf = requestAnimationFrame(() => {
     openRaf = null;
     overlay.classList.add("open");
+    // Focus the close button so keyboard users have an obvious
+    // dismiss target and the tab-trap has somewhere to anchor.
+    closeBtn.focus();
   });
   document.addEventListener("keydown", onKey);
+  document.addEventListener("focusin", trapFocus);
 }
 
 function close() {
   if (!isOpen) return;
   isOpen = false;
   if (openRaf !== null) { cancelAnimationFrame(openRaf); openRaf = null; }
-  // If close() fires mid-drag (Escape or backdrop tap before pointerup),
-  // cancel the drag and clear the inline transform so the CSS slide-out
-  // transition can actually run. Without this, the inline
-  // transform: translateY(...) set during pointermove would override
-  // the closed-state CSS transform and the sheet would snap away when
-  // hideTimeout fires instead of animating out.
+  // If close() fires mid-drag (Escape, backdrop tap, or close button
+  // before pointerup), cancel the drag and clear the inline transform
+  // so the CSS slide-out transition can actually run.
   if (drag) {
     panel.classList.remove("dragging");
     drag = null;
@@ -64,18 +68,63 @@ function close() {
   panel.style.transform = "";
   overlay.classList.remove("open");
   document.removeEventListener("keydown", onKey);
-  // Wait for the slide-out transition before yanking the overlay
-  // out of the layout, otherwise it just snaps away. open() cancels
-  // this if the user re-opens before it fires.
-  if (hideTimeout) clearTimeout(hideTimeout);
-  hideTimeout = setTimeout(() => {
+  document.removeEventListener("focusin", trapFocus);
+  // Wait for the slide-out transition to finish before yanking the
+  // overlay out of layout. transitionend is robust to CSS timing
+  // changes (e.g., a future prefers-reduced-motion override); a
+  // safety setTimeout catches the no-transition case where
+  // transitionend never fires.
+  if (pendingHide) pendingHide.cancel();
+  pendingHide = scheduleHide();
+  // Restore focus to whoever had it before the dialog opened (usually
+  // the gear button).
+  if (previousFocus && typeof previousFocus.focus === "function") {
+    previousFocus.focus();
+  }
+  previousFocus = null;
+}
+
+function scheduleHide() {
+  const safetyMs = 400;  // > CSS 220ms + slack
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    panel.removeEventListener("transitionend", onEnd);
+    clearTimeout(safety);
     overlay.hidden = true;
-    hideTimeout = null;
-  }, 220);
+    pendingHide = null;
+  };
+  const onEnd = (e) => {
+    // Multiple transitionend events fire per element; only the
+    // transform one signals the slide-out completed.
+    if (e.target === panel && e.propertyName === "transform") finish();
+  };
+  panel.addEventListener("transitionend", onEnd);
+  const safety = setTimeout(finish, safetyMs);
+  return { cancel: () => {
+    if (done) return;
+    done = true;
+    panel.removeEventListener("transitionend", onEnd);
+    clearTimeout(safety);
+  } };
 }
 
 function onKey(e) {
   if (e.key === "Escape") close();
+}
+
+// Focus trap: if focus tries to move outside the dialog while it's
+// open (e.g., user tabs off the last focusable), bounce it back to
+// the first focusable inside. role="dialog" + aria-modal="true" on
+// the panel markup tells AT this is a modal context.
+function trapFocus(e) {
+  if (!isOpen) return;
+  if (panel.contains(e.target)) return;
+  const focusable = panel.querySelector(
+    'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
+  );
+  if (focusable) focusable.focus();
 }
 
 openBtn.addEventListener("click", open);

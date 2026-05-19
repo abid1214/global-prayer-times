@@ -29,7 +29,10 @@
     four clock-mode methods: aqrab al-awqāt, niṣf al-layl, sub'iyya, and
     angle-based with seasonal reduction. See the docblocks in
     <code>src/earthMaterial.js</code> and <code>src/prayer.js</code>.</p>
-  <p class="lede">Open this file directly in a browser (no test runner required).</p>
+  <p class="lede">Run via a local static server (ES module imports from
+    <code>../src/</code> are blocked under <code>file://</code> in most browsers);
+    e.g. from the repo root: <code>python3 -m http.server 8000</code>, then open
+    <code>http://localhost:8000/tests/classifierAgreement.html</code>.</p>
   <pre id="results">Loading…</pre>
   <script type="module" src="./classifierAgreement.test.js"></script>
 </body>
