@@ -289,11 +289,15 @@ function warnIfRemoteProjection(latDeg, lonDeg) {
 
 // ---------- method 4: niṣf al-layl (middle of night) ----------
 //
-// Spec: Isha at midpoint between Maghrib and Fajr; Fajr from that
-// midpoint. We anchor "Maghrib" at the -4° boundary (or sunset if -4°
-// doesn't occur) and "Fajr" at the next-day sunrise (no Fajr to anchor
-// to at high lat, by construction). Midpoint M = (Maghrib + next
-// sunrise) / 2. Isha-faḍīla starts at M; Fajr starts at M.
+// We anchor "night start" at Maghrib's -4° boundary (or sunset if -4°
+// doesn't occur) and "night end" at the next-day sunrise — there's no
+// Fajr to anchor to at high lat by construction, which is why this
+// method exists. Matches adhan.js's HighLatitudeRule.MiddleOfTheNight
+// convention; differs from the canonical Ja'fari shar'ī midnight
+// (Maghrib → next Fajr) by Fajr's duration. See the README's
+// high-latitude methods section for the divergence discussion.
+// Midpoint M = (Maghrib + next sunrise) / 2. Isha-faḍīla starts at M;
+// Fajr starts at M.
 function midnightTimes(latDeg, lonDeg, date, params) {
   const today    = computeAdhanAt(latDeg, lonDeg, date, params);
   const tomorrow = computeAdhanAt(latDeg, lonDeg, addDays(date, 1), params);
@@ -394,7 +398,13 @@ function angleReducedTimes(latDeg, lonDeg, date, params) {
   const fajrAngleDeg = Math.min(16, Math.max(0, -sunMinDeg));
   const ishaAngleDeg = Math.min(14, Math.max(0, -sunMinDeg));
 
-  const reduced = jafariParams();
+  // Derive from the passed params (not a fresh jafariParams()) so any
+  // upstream customization — e.g., a future caller tweaking madhab or
+  // adjustments — survives the reduction. Sibling helpers
+  // (midnightTimes, seventhTimes) already use `params` directly;
+  // matching the pattern here.
+  const reduced = adhan.CalculationMethod.Other();
+  Object.assign(reduced, params);
   reduced.fajrAngle = fajrAngleDeg;
   reduced.ishaAngle = ishaAngleDeg;
   const t = computeAdhanAt(latDeg, lonDeg, date, reduced);
