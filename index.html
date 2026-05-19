@@ -238,7 +238,7 @@
               <span class="method-desc">Keep &minus;16&deg;/&minus;14&deg; when reachable; otherwise ease toward the horizon as the season requires.</span>
               <details class="learn-more">
                 <summary>Learn more</summary>
-                <p>Uses the standard Ja'fari angles when the sun reaches them. When the sun's minimum altitude is shallower than &minus;16&deg; (Fajr) or &minus;14&deg; (Isha), the threshold is reduced to whatever the sun actually achieves at solar midnight, so Fajr and Isha are always defined. Converges to the standard rule when conditions allow; converges to middle-of-night in deep polar summer.</p>
+                <p>Uses the standard Ja'fari angles when the sun reaches them. When the sun's minimum altitude is shallower than &minus;16&deg; (Fajr) or &minus;14&deg; (Isha), the threshold is reduced to whatever the sun actually achieves at solar midnight, so Fajr and Isha remain defined as long as the sun crosses the apparent horizon at some point during the day. In polar day (sun never sets) the method falls back to <em>ni&#x1e63;f al-layl</em>, whose own polar-summer handling applies. Converges to the standard rule when conditions allow.</p>
               </details>
             </div>
           </label>

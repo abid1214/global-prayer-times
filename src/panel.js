@@ -22,9 +22,13 @@ let lastLocation = null;
 // method change reuses this rather than re-resolving timezone (which
 // is async and would flicker). Cleared on dismiss.
 let lastRender = null;
-// Active settings subscription. Held only while the panel is open
-// so closed-panel cycles don't accumulate dead callbacks. settings.js's
-// subscribe() returns an unsubscribe handle.
+// Active settings subscription. Established on the first
+// showPanelForLocation and kept alive across dismiss → peek (mobile)
+// and across desktop close, so a method change via the gear refreshes
+// whichever surface is currently visible (panel, peek, or nothing).
+// The single subscriber is replaced on the next showPanelForLocation
+// when the user picks a new location, so the count stays bounded.
+// settings.js's subscribe() returns an unsubscribe handle.
 let methodUnsub = null;
 
 const isMobile = () => window.matchMedia("(max-width: 768px)").matches;

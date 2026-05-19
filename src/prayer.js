@@ -381,6 +381,16 @@ function seventhTimes(latDeg, lonDeg, date, params) {
 function angleReducedTimes(latDeg, lonDeg, date, params) {
   const sunMinRad = sunMinAltitudeRad(latDeg, date);
   const sunMinDeg = sunMinRad / DEG;                       // negative
+  // Polar-day fallback: when the sun never crosses the apparent
+  // horizon (sun's minimum altitude is above −0.833°), there's no
+  // physically attainable Fajr/Isha threshold. Clamping the angle
+  // to 0° would tell adhan to find sun-at-horizon, which never
+  // happens here either, so it'd return NaN. Fall back to the
+  // midnight rule, which has its own polar-summer handling.
+  const APPARENT_HORIZON_DEG = -50 / 60;
+  if (sunMinDeg > APPARENT_HORIZON_DEG) {
+    return midnightTimes(latDeg, lonDeg, date, params);
+  }
   const fajrAngleDeg = Math.min(16, Math.max(0, -sunMinDeg));
   const ishaAngleDeg = Math.min(14, Math.max(0, -sunMinDeg));
 

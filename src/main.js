@@ -392,13 +392,22 @@ function setQiblaFrom(latDeg, lonDeg) {
 // note — a visual cue that the times shown aren't computed at the actual
 // tapped latitude.
 function clearProjectionViz() {
-  if (projectionPin) projectionPin.visible = false;
+  let changed = false;
+  if (projectionPin && projectionPin.visible) {
+    projectionPin.visible = false;
+    changed = true;
+  }
   if (projectionLine) {
     earthGroup.remove(projectionLine);
     projectionLine.geometry.dispose();
     projectionLine.material.dispose();
     projectionLine = null;
+    changed = true;
   }
+  // The render loop is dirty-flag gated, so removing the pin / arc
+  // doesn't visually erase them until something else dirties the
+  // scene. setProjectionViz() markDirty's at the end; mirror here.
+  if (changed) markDirty();
 }
 
 // Target lat/lon may differ from the user's lon for the nearest-city

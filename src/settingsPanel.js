@@ -57,6 +57,12 @@ function open() {
 function close() {
   if (!isOpen) return;
   isOpen = false;
+  // If we never got to add .open (close fires faster than RAF), there's
+  // no slide-out transition to wait for. Without this branch we'd
+  // schedule the hide on transitionend, the event would never fire,
+  // and the transparent backdrop (opacity: 0, pointer-events: auto)
+  // would briefly block clicks to the globe until the safety timeout.
+  const wasVisuallyOpen = overlay.classList.contains("open");
   if (openRaf !== null) { cancelAnimationFrame(openRaf); openRaf = null; }
   // If close() fires mid-drag (Escape, backdrop tap, or close button
   // before pointerup), cancel the drag and clear the inline transform
@@ -75,7 +81,14 @@ function close() {
   // safety setTimeout catches the no-transition case where
   // transitionend never fires.
   if (pendingHide) pendingHide.cancel();
-  pendingHide = scheduleHide();
+  if (wasVisuallyOpen) {
+    pendingHide = scheduleHide();
+  } else {
+    // No transition expected — hide immediately so the backdrop
+    // doesn't briefly block clicks.
+    overlay.hidden = true;
+    pendingHide = null;
+  }
   // Restore focus to whoever had it before the dialog opened (usually
   // the gear button).
   if (previousFocus && typeof previousFocus.focus === "function") {
