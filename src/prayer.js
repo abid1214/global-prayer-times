@@ -284,10 +284,12 @@ const AWQAT_CACHE_CAP = 256;
 const AWQAT_MAX_BACK_DAYS = 90;
 
 function walkBackForValidDay(latDeg, lonDeg, date) {
-  // FALLBACK INVARIANT: see midnightTimes for the rule. Here it means
-  // "non-NaN isn't enough" — adhan can return six valid Dates that
-  // are internally out of order at marginal polar dates, and accepting
-  // those as success silently corrupts the panel's "Now in" indicator.
+  // FALLBACK INVARIANT (see midnightTimes; enforced by
+  // assertChronological in tests/classifierAgreement.test.js). Here
+  // it means "non-NaN isn't enough" — adhan can return six valid
+  // Dates that are internally out of order at marginal polar dates,
+  // and accepting those as success silently corrupts the panel's
+  // "Now in" indicator.
   const params = jafariParams();
   for (let i = 1; i <= AWQAT_MAX_BACK_DAYS; i++) {
     const trial = addDays(date, -i);
@@ -382,8 +384,8 @@ function midnightTimes(latDeg, lonDeg, date, params) {
   // upstream defaults that may violate this — adhan.js's internal
   // MiddleOfTheNight default fires for some thresholds and not
   // others at deep polar latitudes, producing six "valid" times in
-  // wrong order. The ordering invariant in
-  // tests/classifierAgreement.test.js asserts this for every
+  // wrong order. Enforced by assertChronological in
+  // tests/classifierAgreement.test.js, which runs against every
   // (method, fixture) cell.
   //
   // When the night anchors are missing (deep polar night/day where
@@ -430,9 +432,10 @@ function seventhTimes(latDeg, lonDeg, date, params) {
   const tSunrise = today.sunrise;
   const nextRise = tomorrow.sunrise;
 
-  // FALLBACK INVARIANT (see midnightTimes): missing anchors → NaN,
-  // never adhan's internal MiddleOfTheNight default. Avoids
-  // out-of-order times at deep polar latitudes.
+  // FALLBACK INVARIANT (see midnightTimes; enforced by
+  // assertChronological in tests/classifierAgreement.test.js).
+  // Missing anchors → NaN, never adhan's internal MiddleOfTheNight
+  // default. Avoids out-of-order times at deep polar latitudes.
   let fajr = new Date(NaN);
   let isha = new Date(NaN);
   if (isValidDate(yMaghrib) && isValidDate(tSunrise)) {
@@ -499,13 +502,14 @@ function angleReducedTimes(latDeg, lonDeg, date, params) {
   reduced.ishaAngle = ishaAngleDeg;
   const t = computeAdhanAt(latDeg, lonDeg, date, reduced);
 
-  // FALLBACK INVARIANT (see midnightTimes): at deep polar night the
-  // sun's max altitude can be more negative than the asr threshold
-  // (~0°), so adhan still returns a clamped value for asr — but the
-  // resulting isha (at the reduced angle) can land BEFORE asr,
-  // violating chronological order. Detect that and fall back to
-  // midnight, which returns NaN for fajr/isha when anchors are
-  // missing and stays cleanly ordered.
+  // FALLBACK INVARIANT (see midnightTimes; enforced by
+  // assertChronological in tests/classifierAgreement.test.js). At
+  // deep polar night the sun's max altitude can be more negative
+  // than the asr threshold (~0°), so adhan still returns a clamped
+  // value for asr — but the resulting isha (at the reduced angle)
+  // can land BEFORE asr, violating chronological order. Detect that
+  // and fall back to midnight, which returns NaN for fajr/isha when
+  // anchors are missing and stays cleanly ordered.
   const mTime = anchorMaghrib(t);
   const ordered = isValidDate(t.fajr) && isValidDate(t.sunrise) && isValidDate(t.dhuhr)
     && isValidDate(t.asr) && isValidDate(mTime) && isValidDate(t.isha)
