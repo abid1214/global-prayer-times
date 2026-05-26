@@ -321,10 +321,20 @@ function describePolarMethod(polarMethod, tz, _date) {
     }
     case "aqrab_awqat":
       return { primary: `Method: aqrab al-awqāt · schedule from ${fmtUtcShortDate(polarMethod.derivedFromDate)}` };
-    case "midnight":
-      return { primary: `Method: niṣf al-layl (middle of night)` };
-    case "seventh":
-      return { primary: `Method: sub'iyya (one-seventh)` };
+    case "midnight": {
+      const out = { primary: `Method: niṣf al-layl (middle of night)` };
+      if (polarMethod.endOfNightSource === "sunrise-fallback") {
+        out.secondary = `end of night derived from next sunrise (Fajr unresolvable at this latitude/date)`;
+      }
+      return out;
+    }
+    case "seventh": {
+      const out = { primary: `Method: sub'iyya (one-seventh)` };
+      if (polarMethod.endOfNightSource === "sunrise-fallback") {
+        out.secondary = `end of night derived from next sunrise (Fajr unresolvable at this latitude/date)`;
+      }
+      return out;
+    }
     case "angle_reduced":
       return { primary: `Method: angle-based with seasonal reduction · Fajr ${polarMethod.fajrAngle.toFixed(1)}°, Isha ${polarMethod.ishaAngle.toFixed(1)}°` };
     default:

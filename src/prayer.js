@@ -145,6 +145,77 @@ function anchorMaghrib(times) {
   return isValidDate(times.maghrib) ? times.maghrib : times.sunset;
 }
 
+// One console.warn per browser session when endOfNight() falls back
+// from Fajr to sunrise. Diagnostic canary for catching the fallback
+// firing more often than expected near the 74° Fajr-cap; can be
+// removed before Stage 3 if noisy.
+let _sunriseFallbackWarned = false;
+
+// Fajr at -16° is physically reachable at (latDeg, date) iff the
+// sun's minimum altitude that day is at or below -16°. Equivalently,
+// |φ + δ| ≤ 90° − 16° = 74° = FAJR_LIMIT_DEG. We cannot trust
+// isValidDate(adhanFajr) alone because adhan's CalculationParameters
+// defaults to highLatitudeRule: middleofthenight, which synthesizes a
+// "Fajr" value (actually a midnight-rule fallback) at latitudes where
+// the angle is never reached. That synthesized value is itself a
+// flavor of midnight, so using it as the anchor for endOfNight()
+// would silently double-apply the rule. Use the physical check
+// instead.
+const FAJR_REACHABLE_THRESHOLD_RAD = -16 * DEG;
+function reachableFajr(latDeg, date, adhanFajr) {
+  if (!isValidDate(adhanFajr)) return null;
+  if (sunMinAltitudeRad(latDeg, date) > FAJR_REACHABLE_THRESHOLD_RAD) return null;
+  return adhanFajr;
+}
+
+// Resolve the end of the Shia night for split-night methods (4, 5, 6).
+// Canonical Ja'farī: end of night = next Fajr (the midpoint of
+// Maghrib → next Fajr is shar'ī midnight; per Sistani's Dialogue on
+// Prayer and leader.ir/en/content/24743). Fallback: next sunrise,
+// used only when nextFajr is unresolvable — typically when the user
+// is inside the Fajr cap (|φ+δ| > 74°). Callers should pre-filter
+// the Fajr anchor via reachableFajr() so adhan's middleofthenight
+// synthesis is not silently treated as a real Fajr.
+//
+// Returns { time, source } where source ∈ {'fajr', 'sunrise-fallback'}.
+// time may itself be NaN in the deepest-polar regime (neither anchor
+// available) — callers test isValidDate(time) and emit NaN times.
+//
+// `context` carries lat/lon/date/method for the session-deduped warn.
+function endOfNight({ nextFajr, nextSunrise }, context) {
+  if (isValidDate(nextFajr)) {
+    return { time: nextFajr, source: "fajr" };
+  }
+  // Skip the warn if sunrise is also missing — there's no "fallback"
+  // happening in any meaningful sense, just a NaN propagating
+  // downstream. The source label stays 'sunrise-fallback' to make the
+  // algorithmic intent clear.
+  if (isValidDate(nextSunrise) && !_sunriseFallbackWarned) {
+    _sunriseFallbackWarned = true;
+    const c = context || {};
+    const dateStr = (c.date instanceof Date && !isNaN(c.date))
+      ? c.date.toISOString().slice(0, 10) : "n/a";
+    const latStr = Number.isFinite(c.latDeg) ? c.latDeg.toFixed(2) : "n/a";
+    const lonStr = Number.isFinite(c.lonDeg) ? c.lonDeg.toFixed(2) : "n/a";
+    console.warn(
+      `[gpt] endOfNight: Fajr unresolvable, using sunrise fallback ` +
+      `(lat=${latStr}, lon=${lonStr}, date=${dateStr}, method=${c.method ?? "?"})`
+    );
+  }
+  return { time: nextSunrise, source: "sunrise-fallback" };
+}
+
+// Merge two endOfNight source values into a single diagnostic for the
+// polarMethod field. midnightTimes/seventhTimes resolve two endpoints
+// (last night and this night); we want a single source label for the
+// panel's note. If either fell back to sunrise, the surface label is
+// 'sunrise-fallback' — that's the more conservative reading.
+function combineSources(...sources) {
+  return sources.some((s) => s === "sunrise-fallback")
+    ? "sunrise-fallback"
+    : "fajr";
+}
+
 // ---------- clock-based "Now in" classifier ----------
 // Used for the side-panel "Now in" indicator under the four
 // clock-mode methods: AQRAB_AL_AWQAT, MIDNIGHT, SEVENTH, and
@@ -377,20 +448,25 @@ function warnIfRemoteProjection(latDeg, lonDeg) {
 // ---------- method 4: niṣf al-layl (middle of night) ----------
 //
 // We anchor "night start" at Maghrib's -4° boundary (or sunset if -4°
-// doesn't occur) and "night end" at the next-day sunrise — there's no
-// Fajr to anchor to at high lat by construction, which is why this
-// method exists. Matches adhan.js's HighLatitudeRule.MiddleOfTheNight
-// convention; differs from the canonical Ja'fari shar'ī midnight
-// (Maghrib → next Fajr) by Fajr's duration. See the README's
-// high-latitude methods section for the divergence discussion.
+// doesn't occur) and "night end" at the canonical Ja'farī endpoint:
+// the next Fajr at -16°. This matches the shar'ī midnight definition
+// used throughout the rest of this codebase (½(Maghrib + nextFajr))
+// — Sistani's Dialogue on Prayer; leader.ir /en/content/24743.
+//
+// When Fajr is unresolvable at the user's location/date (deep inside
+// the Fajr cap), endOfNight() falls back to the next sunrise — this
+// is the int'l-convention HighLatitudeRule.MiddleOfTheNight behavior
+// and preserves predictability where Fajr doesn't enter at all. The
+// polarMethod's endOfNightSource field surfaces the fallback to the
+// panel so the user can see when the sunrise anchor is in play.
 //
 // Today's Fajr is the midpoint of the PRECEDING night (yesterday's
-// Maghrib → today's sunrise) — so it lands in the early hours and
-// stays in chronological order with sunrise/dhuhr/asr that follow.
-// Today's Isha is the midpoint of the UPCOMING night (today's
-// Maghrib → tomorrow's sunrise) — late evening, after maghrib.
-// Mirrors seventhTimes's split-night layout; without this, both
-// fajr and isha would land in the same UPCOMING-night midpoint
+// Maghrib → today's end-of-night) — so it lands in the early hours
+// and stays in chronological order with sunrise/dhuhr/asr that
+// follow. Today's Isha is the midpoint of the UPCOMING night
+// (today's Maghrib → tomorrow's end-of-night) — late evening, after
+// maghrib. Mirrors seventhTimes's split-night layout; without this,
+// both fajr and isha would land in the same UPCOMING-night midpoint
 // and classifyByClock's forward walk (fajr → sunrise → … → isha)
 // would mislabel the entire day.
 function midnightTimes(latDeg, lonDeg, date, params) {
@@ -401,6 +477,19 @@ function midnightTimes(latDeg, lonDeg, date, params) {
   const tMaghrib  = anchorMaghrib(today);
   const tSunrise  = today.sunrise;
   const nextRise  = tomorrow.sunrise;
+
+  // Last night ends at today's Fajr (canonical); this night ends at
+  // tomorrow's Fajr. endOfNight() falls back to sunrise when Fajr is
+  // unresolvable and warns once per session. reachableFajr() filters
+  // out adhan's middleofthenight synthesis so we anchor only on
+  // physically attainable Fajr times — otherwise the midnight rule
+  // would silently nest inside itself when the user is past the cap.
+  const ctx = { latDeg, lonDeg, date, method: 4 };
+  const todayFajr    = reachableFajr(latDeg, date,            today.fajr);
+  const tomorrowDate = addDays(date, 1);
+  const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr);
+  const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctx);
+  const thisEnd = endOfNight({ nextFajr: tomorrowFajr, nextSunrise: nextRise }, ctx);
 
   // FALLBACK INVARIANT: any path that synthesizes prayer times must
   // return strictly-chronological values (fajr < sunrise < dhuhr <
@@ -413,14 +502,14 @@ function midnightTimes(latDeg, lonDeg, date, params) {
   // (method, fixture) cell.
   //
   // When the night anchors are missing (deep polar night/day where
-  // neither Maghrib nor sunrise occur), return NaN rather than
+  // neither Maghrib nor Fajr/sunrise occur), return NaN rather than
   // falling back to today.fajr/today.isha — those values come from
   // adhan's default and don't share semantics with this method.
-  const fajr = (isValidDate(yMaghrib) && isValidDate(tSunrise))
-    ? new Date((yMaghrib.getTime() + tSunrise.getTime()) / 2)
+  const fajr = (isValidDate(yMaghrib) && isValidDate(lastEnd.time))
+    ? new Date((yMaghrib.getTime() + lastEnd.time.getTime()) / 2)
     : new Date(NaN);
-  const isha = (isValidDate(tMaghrib) && isValidDate(nextRise))
-    ? new Date((tMaghrib.getTime() + nextRise.getTime()) / 2)
+  const isha = (isValidDate(tMaghrib) && isValidDate(thisEnd.time))
+    ? new Date((tMaghrib.getTime() + thisEnd.time.getTime()) / 2)
     : new Date(NaN);
 
   return buildResult({
@@ -434,7 +523,10 @@ function midnightTimes(latDeg, lonDeg, date, params) {
       isha,
       raw: today,
     },
-    polarMethod: { kind: "midnight" },
+    polarMethod: {
+      kind: "midnight",
+      endOfNightSource: combineSources(lastEnd.source, thisEnd.source),
+    },
     classifyMode: "clock",
   });
 }
@@ -442,10 +534,16 @@ function midnightTimes(latDeg, lonDeg, date, params) {
 // ---------- method 5: sub'iyya (one-seventh) ----------
 //
 // Spec: Isha at 1/7 of the night past Maghrib; Fajr at 1/7 before
-// sunrise. "The night" for today's Fajr is last night (yesterday's
-// Maghrib → today's sunrise); for today's Isha it's tonight (today's
-// Maghrib → tomorrow's sunrise). Symmetric with the standard
-// HighLatitudeRule.SeventhOfTheNight in adhan.js.
+// end-of-night. "The night" for today's Fajr is last night
+// (yesterday's Maghrib → today's end-of-night); for today's Isha it
+// is tonight (today's Maghrib → tomorrow's end-of-night).
+//
+// "End of night" follows the canonical Ja'farī rule (next Fajr at
+// -16°), with sunrise fallback only when Fajr is unresolvable —
+// same endOfNight() helper as midnightTimes. The adhan.js
+// HighLatitudeRule.SeventhOfTheNight reference uses sunrise; we
+// diverge to Fajr to match the Ja'farī shar'ī-midnight definition
+// used elsewhere in this app.
 function seventhTimes(latDeg, lonDeg, date, params) {
   const yesterday = computeAdhanAt(latDeg, lonDeg, addDays(date, -1), params);
   const today     = computeAdhanAt(latDeg, lonDeg, date, params);
@@ -456,18 +554,25 @@ function seventhTimes(latDeg, lonDeg, date, params) {
   const tSunrise = today.sunrise;
   const nextRise = tomorrow.sunrise;
 
+  const ctx = { latDeg, lonDeg, date, method: 5 };
+  const todayFajr    = reachableFajr(latDeg, date,            today.fajr);
+  const tomorrowDate = addDays(date, 1);
+  const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr);
+  const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctx);
+  const thisEnd = endOfNight({ nextFajr: tomorrowFajr, nextSunrise: nextRise }, ctx);
+
   // FALLBACK INVARIANT (see midnightTimes; enforced by
   // assertChronological in tests/classifierAgreement.test.js).
   // Missing anchors → NaN, never adhan's internal MiddleOfTheNight
   // default. Avoids out-of-order times at deep polar latitudes.
   let fajr = new Date(NaN);
   let isha = new Date(NaN);
-  if (isValidDate(yMaghrib) && isValidDate(tSunrise)) {
-    const lastNightLen = tSunrise.getTime() - yMaghrib.getTime();
-    fajr = new Date(tSunrise.getTime() - lastNightLen / 7);
+  if (isValidDate(yMaghrib) && isValidDate(lastEnd.time)) {
+    const lastNightLen = lastEnd.time.getTime() - yMaghrib.getTime();
+    fajr = new Date(lastEnd.time.getTime() - lastNightLen / 7);
   }
-  if (isValidDate(tMaghrib) && isValidDate(nextRise)) {
-    const thisNightLen = nextRise.getTime() - tMaghrib.getTime();
+  if (isValidDate(tMaghrib) && isValidDate(thisEnd.time)) {
+    const thisNightLen = thisEnd.time.getTime() - tMaghrib.getTime();
     isha = new Date(tMaghrib.getTime() + thisNightLen / 7);
   }
 
@@ -482,7 +587,10 @@ function seventhTimes(latDeg, lonDeg, date, params) {
       isha,
       raw: today,
     },
-    polarMethod: { kind: "seventh" },
+    polarMethod: {
+      kind: "seventh",
+      endOfNightSource: combineSources(lastEnd.source, thisEnd.source),
+    },
     classifyMode: "clock",
   });
 }
