@@ -153,7 +153,14 @@ let projectionPin = null;
 let projectionLine = null;
 let sunGroup = null;
 let sunLine = null;
+let equatorLine = null;
+let sunTrace = null;
 const SUN_DISTANCE = 60;
+// 24-hour window for the sun-path trace (matches the hour-scrubber
+// range of ±12h). Sampled at this many segments — declination drift
+// over 24h is sub-degree so coarse sampling reads as a smooth arc.
+const SUN_TRACE_SEGMENTS = 96;
+const SUN_TRACE_HALF_MS = 12 * 3600 * 1000;
 
 (async function init() {
   const dayTex = await loadTex(DAY_TEXTURE);
@@ -215,11 +222,25 @@ const SUN_DISTANCE = 60;
   sunLine = makeSunLine();
   scene.add(sunLine);
 
+  // Reference ring at lat=0 on Earth's surface. Static — added to
+  // earthGroup so it travels with the planet (currently earthGroup
+  // doesn't rotate, but keeping it grouped is correct in principle).
+  equatorLine = makeEquatorLine();
+  earthGroup.add(equatorLine);
+
+  // 24-hour sun-path arc — the trace the sun-line endpoint sweeps as
+  // the user scrubs ±12h. Lives in world space (sun does too) and is
+  // re-sampled in updateSunUniforms so it stays centred on the
+  // effective time.
+  sunTrace = makeSunTrace();
+  scene.add(sunTrace);
+
   // Seed sun-driven objects (shader sunDir uniform, sunGroup position,
-  // sunLine endpoints) once before the first paint. Without this,
-  // updateSunUniforms only fires on the throttled 500ms tick — on a
-  // cache-warm load the first frame can render with placeholder
-  // geometry and a flash of the wrong lighting.
+  // sunLine endpoints, sun-trace positions) once before the first
+  // paint. Without this, updateSunUniforms only fires on the
+  // throttled 500ms tick — on a cache-warm load the first frame can
+  // render with placeholder geometry and a flash of the wrong
+  // lighting.
   updateSunUniforms(effectiveNow());
 
   initToggles();
@@ -330,6 +351,48 @@ function makeSunLine() {
   // sphere — without disabling culling the line vanishes whenever its
   // computed bounds (stale from the placeholder) fall outside the
   // frustum.
+  line.frustumCulled = false;
+  return line;
+}
+
+function makeEquatorLine() {
+  // Closed ring at lat=0 on Earth's surface, lifted 0.5% above so it
+  // sits proud of the texture without z-fighting (mirrors the qibla
+  // / projection-arc convention).
+  const N = 256;
+  const positions = [];
+  for (let i = 0; i <= N; i++) {
+    const lon = (i / N) * 2 * Math.PI;
+    const v = latLonToVec3(0, lon);
+    positions.push(v[0] * 1.005, v[1] * 1.005, v[2] * 1.005);
+  }
+  const geo = new LineGeometry();
+  geo.setPositions(positions);
+  const mat = new LineMaterial({
+    color: 0x9ad7ff,
+    linewidth: 1.0,
+    transparent: true,
+    opacity: 0.35,
+    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+  });
+  const line = new Line2(geo, mat);
+  return line;
+}
+
+function makeSunTrace() {
+  // Polyline tracing the sun's position across the ±12h window
+  // centred on the effective time. Positions are placeholders here —
+  // updateSunUniforms re-samples them on every tick.
+  const geo = new LineGeometry();
+  geo.setPositions(new Array((SUN_TRACE_SEGMENTS + 1) * 3).fill(0));
+  const mat = new LineMaterial({
+    color: 0xfff5cc,
+    linewidth: 1.0,
+    transparent: true,
+    opacity: 0.35,
+    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+  });
+  const line = new Line2(geo, mat);
   line.frustumCulled = false;
   return line;
 }
@@ -576,6 +639,18 @@ function updateSunUniforms(date) {
       sunDir[2] * SUN_DISTANCE,
     ]);
   }
+  if (sunTrace) {
+    const positions = new Array((SUN_TRACE_SEGMENTS + 1) * 3);
+    const t0 = date.getTime() - SUN_TRACE_HALF_MS;
+    const step = (2 * SUN_TRACE_HALF_MS) / SUN_TRACE_SEGMENTS;
+    for (let i = 0; i <= SUN_TRACE_SEGMENTS; i++) {
+      const { sunDir: d } = sunPosition(new Date(t0 + i * step));
+      positions[i * 3 + 0] = d[0] * SUN_DISTANCE;
+      positions[i * 3 + 1] = d[1] * SUN_DISTANCE;
+      positions[i * 3 + 2] = d[2] * SUN_DISTANCE;
+    }
+    sunTrace.geometry.setPositions(positions);
+  }
 }
 
 const clockEl = document.getElementById("clock");
@@ -791,6 +866,8 @@ window.addEventListener("resize", () => {
   if (qiblaLine) qiblaLine.material.resolution.set(window.innerWidth, window.innerHeight);
   if (projectionLine) projectionLine.material.resolution.set(window.innerWidth, window.innerHeight);
   if (sunLine) sunLine.material.resolution.set(window.innerWidth, window.innerHeight);
+  if (equatorLine) equatorLine.material.resolution.set(window.innerWidth, window.innerHeight);
+  if (sunTrace) sunTrace.material.resolution.set(window.innerWidth, window.innerHeight);
   markDirty();
 });
 
