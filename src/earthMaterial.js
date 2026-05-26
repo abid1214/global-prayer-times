@@ -239,13 +239,19 @@ const FRAG = /* glsl */ `
 // Flat cartographic textures already encode their target luminance,
 // so pass dayBoost = 1.0 (or similar) to avoid saturating the day
 // hemisphere when the shader's prayer-band overlay adds on top.
-export function createEarthMaterial({ dayMap, dayBoost = 2.7 }) {
+//
+// prayerOpacity defaults to 0.85 — calibrated so the bands read as
+// the dominant color on top of the dark photographic base. Against a
+// bright cartographic base the same opacity clamps the day hemisphere
+// to (1,1,1) (mix at 0.78 + additive 0.34*prayerColor blows through);
+// pass ~0.5 to let the cartographic colors show through the bands.
+export function createEarthMaterial({ dayMap, dayBoost = 2.7, prayerOpacity = 0.85 }) {
   return new THREE.ShaderMaterial({
     uniforms: {
       dayMap: { value: dayMap },
       sunDir: { value: new THREE.Vector3(1, 0, 0) },
       decl: { value: 0 },
-      prayerOpacity: { value: 0.85 },
+      prayerOpacity: { value: prayerOpacity },
       dayBoost: { value: dayBoost },
       prayerEnabled: { value: 1.0 },
       enFajr: { value: 1.0 },

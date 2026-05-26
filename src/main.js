@@ -26,11 +26,15 @@ import { snapToNearestHighLatCity } from "./highLatCities.js";
 // clamp the day hemisphere to (1,1,1).
 const WATER_MASK_URL = "https://unpkg.com/three-globe/example/img/earth-water.png";
 const EARTH_DAY_BOOST = 1.0;
+// Lower than the photographic default (0.85) so prayer bands tint the
+// cartographic base instead of overwriting it — at 0.85 the bands'
+// mix*0.92 + additive*0.40 weights clamp the day side to white.
+const EARTH_PRAYER_OPACITY = 0.5;
 const EARTH_LIFT_BYTE = 36;  // matches the +0.14 (~ 36/255) lift in earthMaterial's FRAG.
-//   target #c4ad7a (warm tan) - 0x24 = source for the canvas.
-//   target #6c91b5 (steel blue) - 0x24 = source for the canvas.
-const LAND_COLOR = [0xc4 - EARTH_LIFT_BYTE, 0xad - EARTH_LIFT_BYTE, 0x7a - EARTH_LIFT_BYTE];
-const WATER_COLOR = [0x6c - EARTH_LIFT_BYTE, 0x91 - EARTH_LIFT_BYTE, 0xb5 - EARTH_LIFT_BYTE];
+//   target #b59a6a (muted tan) - 0x24 = source for the canvas.
+//   target #6685a3 (steel blue) - 0x24 = source for the canvas.
+const LAND_COLOR = [0xb5 - EARTH_LIFT_BYTE, 0x9a - EARTH_LIFT_BYTE, 0x6a - EARTH_LIFT_BYTE];
+const WATER_COLOR = [0x66 - EARTH_LIFT_BYTE, 0x85 - EARTH_LIFT_BYTE, 0xa3 - EARTH_LIFT_BYTE];
 
 const MECCA_LAT = 21.4225;
 const MECCA_LON = 39.8262;
@@ -242,7 +246,11 @@ const _traceDate = new Date();
 
 (async function init() {
   const dayTex = await buildFlatEarthTexture();
-  earthMaterial = createEarthMaterial({ dayMap: dayTex, dayBoost: EARTH_DAY_BOOST });
+  earthMaterial = createEarthMaterial({
+    dayMap: dayTex,
+    dayBoost: EARTH_DAY_BOOST,
+    prayerOpacity: EARTH_PRAYER_OPACITY,
+  });
   earthMesh = new THREE.Mesh(earthGeo, earthMaterial);
   earthGroup.add(earthMesh);
 
@@ -913,12 +921,29 @@ function initScrubber() {
   }
   refreshScrubLabel = refreshLabel;
 
+  // Day-mode rubber-band guard: with step=1 day across ±366 days
+  // the slider has 732 stops over a phone-sized track (<0.5 px/step),
+  // so finger jitter on the thumb fires input events alternating
+  // between two adjacent days. Drop 1-step direction reversals that
+  // arrive within 150 ms — fast enough to feel "the same hold", slow
+  // enough to leave deliberate slow scrubs untouched.
+  let lastUnits = 0;
+  let lastDelta = 0;
+  let lastInputTime = 0;
+  function resetJitterFilter() {
+    lastDelta = 0;
+    lastInputTime = 0;
+  }
+
   function syncSliderToMode() {
     const cfg = SCRUB_MODES[scrubMode];
     slider.min = String(cfg.min);
     slider.max = String(cfg.max);
     slider.step = String(cfg.step);
-    slider.value = String(Math.round(activeOffsetMs() / cfg.msPerUnit));
+    const units = Math.round(activeOffsetMs() / cfg.msPerUnit);
+    slider.value = String(units);
+    lastUnits = units;
+    resetJitterFilter();
     modeBtn.textContent = scrubMode;
     modeBtn.classList.toggle("date-mode", scrubMode === "d");
     modeBtn.title = scrubMode === "h" ? "Switch to date scrubbing" : "Switch to time scrubbing";
@@ -940,6 +965,20 @@ function initScrubber() {
 
   slider.addEventListener("input", () => {
     const units = parseInt(slider.value, 10);
+    const delta = units - lastUnits;
+    const now_t = performance.now();
+    if (
+      scrubMode === "d" &&
+      Math.abs(delta) === 1 &&
+      lastDelta !== 0 &&
+      Math.sign(delta) !== Math.sign(lastDelta) &&
+      now_t - lastInputTime < 150
+    ) {
+      return;
+    }
+    lastUnits = units;
+    lastDelta = delta;
+    lastInputTime = now_t;
     setActiveOffsetMs(units * SCRUB_MODES[scrubMode].msPerUnit);
     refreshLabel();
     live.classList.toggle("active", isScrubLive());
@@ -959,6 +998,8 @@ function initScrubber() {
     scrubHourOffsetMs = 0;
     scrubDayOffsetMs = 0;
     slider.value = "0";
+    lastUnits = 0;
+    resetJitterFilter();
     refreshLabel();
     live.classList.add("active");
     const now = effectiveNow();
