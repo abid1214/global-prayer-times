@@ -40,21 +40,21 @@ To install on a phone as a fullscreen app, open the page in Safari → Share →
 
 ## Methodology
 
-The Ja'fari parameters used throughout:
+The Ja'fari parameters used throughout. Two presets are selectable from the settings gear (the **Marjaʿ / Calculation method** section); the table below shows the default (Leva Qom / Sistani-aligned):
 
-| Prayer  | Threshold                                               |
-| ------- | ------------------------------------------------------- |
-| Fajr    | Sun 16° below the horizon (rising)                      |
-| Dhuhr   | Solar noon (zawāl)                                      |
-| Asr     | Shadow factor = 1 (Shāfi'ī convention)                  |
-| Maghrib | Sun 4° below the horizon (setting) — eastern redness    |
-| Isha    | Sun 14° below the horizon (setting)                     |
+| Prayer  | Threshold (Leva Qom default)                            | Tehran preset alternative |
+| ------- | ------------------------------------------------------- | ------------------------- |
+| Fajr    | Sun 16° below the horizon (rising)                      | 17.7°                     |
+| Dhuhr   | Solar noon (zawāl)                                      | (same)                    |
+| Asr     | Shadow factor = 1 (Shāfi'ī convention)                  | (same)                    |
+| Maghrib | Sun 4° below the horizon (setting) — eastern redness    | 4.5°                      |
+| Isha    | Sun 14° below the horizon (setting)                     | (same)                    |
 
-The **eastern-redness Maghrib** (4° below horizon, ~13 minutes after sunset) is the explicit Ja'fari distinction from Sunni Maghrib at sunset.
+The **eastern-redness Maghrib** (4° below horizon, ~13 minutes after sunset under Leva Qom) is the explicit Ja'fari distinction from Sunni Maghrib at sunset.
 
 **Sunrise/sunset use the apparent horizon (−0.833°)** — atmospheric refraction (~34′) + solar semi-diameter (~16′) — matching adhan.js. The other four thresholds (Fajr at −16°, Maghrib at −4°, Isha at −14°, Asr at shadow-factor 1) are taken geometrically, again matching adhan.js: refraction is negligible at those depths. See the commit message on `bf85d01` for the per-threshold audit.
 
-**Shar'ī midnight** (the moment Isha's *waqt* ends) is computed as the midpoint of (Maghrib at −4°, next Fajr at −16°), the canonical Ja'fari definition per Sistani / Khamenei tawḍīḥ. This determines when `classifyPrayer` switches from the afternoon branch (Asr → Maghrib → Isha) to the morning branch (Fajr → Sunrise). Note: method 4 (niṣf al-layl) uses a different anchoring — see [High-latitude methods](#high-latitude-methods).
+**Shar'ī midnight** (the moment Isha's *waqt* ends) is computed as the midpoint of (Maghrib at −4°, next Fajr at −16°), the canonical Ja'fari definition per Sistani / Khamenei tawḍīḥ. This determines when `classifyPrayer` switches from the afternoon branch (Asr → Maghrib → Isha) to the morning branch (Fajr → Sunrise). The same anchoring is used by the high-latitude methods 4 (niṣf al-layl), 5 (sub'iyya), and 6 (angle-based with seasonal reduction) — with a documented sunrise fallback when Fajr is physically unreachable at the user's latitude/date; see [High-latitude methods](#high-latitude-methods).
 
 ### Bands vs panel times: faḍīla vs waqt
 
