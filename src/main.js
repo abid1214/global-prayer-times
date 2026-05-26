@@ -157,11 +157,21 @@ let equatorLine = null;
 let sunTrace = null;
 let subsolarTrace = null;
 const SUN_DISTANCE = 60;
+// Radius at which surface reference rings (equator, subsolar trace)
+// sit above the textured sphere — 1.4% lift avoids z-fighting and
+// matches the projection-arc convention.
+const SURFACE_RING_R = 1.014;
 // 24-hour window for the sun-path trace (matches the hour-scrubber
 // range of ±12h). Sampled at this many segments — declination drift
 // over 24h is sub-degree so coarse sampling reads as a smooth arc.
 const SUN_TRACE_SEGMENTS = 96;
 const SUN_TRACE_HALF_MS = 12 * 3600 * 1000;
+// Preallocated buffers + Date so the trace re-sample on every
+// scrubber input doesn't churn the GC (avoids per-segment
+// `new Date()` and per-call `new Array()` allocations).
+const FAR_TRACE_BUF = new Float32Array((SUN_TRACE_SEGMENTS + 1) * 3);
+const SURF_TRACE_BUF = new Float32Array((SUN_TRACE_SEGMENTS + 1) * 3);
+const _traceDate = new Date();
 
 (async function init() {
   const dayTex = await loadTex(DAY_TEXTURE);
@@ -363,16 +373,16 @@ function makeSunLine() {
 }
 
 function makeEquatorLine() {
-  // Closed ring at lat=0 on Earth's surface, lifted 1.4% above so it
-  // sits proud of the texture without z-fighting. depthTest stays on
-  // so Earth occludes the back half of the ring — otherwise the
-  // globe reads as see-through.
+  // Closed ring at lat=0 on Earth's surface, lifted by SURFACE_RING_R
+  // above the texture so it sits proud without z-fighting. depthTest
+  // stays on so Earth occludes the back half of the ring — otherwise
+  // the globe reads as see-through.
   const N = 256;
   const positions = [];
   for (let i = 0; i <= N; i++) {
     const lon = (i / N) * 2 * Math.PI;
     const v = latLonToVec3(0, lon);
-    positions.push(v[0] * 1.014, v[1] * 1.014, v[2] * 1.014);
+    positions.push(v[0] * SURFACE_RING_R, v[1] * SURFACE_RING_R, v[2] * SURFACE_RING_R);
   }
   const geo = new LineGeometry();
   geo.setPositions(positions);
@@ -406,10 +416,11 @@ function makeSunTrace() {
 
 function makeSubsolarTrace() {
   // Same 24h path the sun-trace draws, but at Earth's surface — the
-  // subsolar point's track. Lifted to 1.014 to match the equator.
-  // depthTest on so Earth occludes the back half (no see-through).
-  // Deep orange instead of the far-trace yellow so the line stays
-  // legible against desert tones in the Blue Marble texture.
+  // subsolar point's track. Lifted to SURFACE_RING_R to match the
+  // equator. depthTest on so Earth occludes the back half (no
+  // see-through). Deep orange instead of the far-trace yellow so
+  // the line stays legible against desert tones in the Blue Marble
+  // texture.
   const geo = new LineGeometry();
   geo.setPositions(new Array((SUN_TRACE_SEGMENTS + 1) * 3).fill(0));
   const mat = new LineMaterial({
@@ -667,28 +678,35 @@ function updateSunUniforms(date) {
     ]);
   }
   if (sunTrace || subsolarTrace) {
-    // Sample sunPosition once per step, scale into both the far
-    // sun-distance trace and the on-Earth subsolar trace.
-    const SURFACE_R = 1.014;
-    const farPositions = sunTrace ? new Array((SUN_TRACE_SEGMENTS + 1) * 3) : null;
-    const surfPositions = subsolarTrace ? new Array((SUN_TRACE_SEGMENTS + 1) * 3) : null;
-    const t0 = date.getTime() - SUN_TRACE_HALF_MS;
+    // Anchor the 24h window to a stable reference rather than the
+    // scrubbed date, so the user sees the sun marker SLIDE along a
+    // fixed trace as they drag the hour scrubber instead of the
+    // trace shifting with the marker. In day mode the user is
+    // moving through the year by full days — anchor to the scrubbed
+    // date so the orange ring migrates between the tropics as
+    // declination changes.
+    const center = scrubMode === "h" ? Date.now() : date.getTime();
+    const t0 = center - SUN_TRACE_HALF_MS;
     const step = (2 * SUN_TRACE_HALF_MS) / SUN_TRACE_SEGMENTS;
+    // Reuse FAR_TRACE_BUF / SURF_TRACE_BUF / _traceDate to avoid
+    // per-tick allocations during scrubber drags.
     for (let i = 0; i <= SUN_TRACE_SEGMENTS; i++) {
-      const { sunDir: d } = sunPosition(new Date(t0 + i * step));
-      if (farPositions) {
-        farPositions[i * 3 + 0] = d[0] * SUN_DISTANCE;
-        farPositions[i * 3 + 1] = d[1] * SUN_DISTANCE;
-        farPositions[i * 3 + 2] = d[2] * SUN_DISTANCE;
+      _traceDate.setTime(t0 + i * step);
+      const { sunDir: d } = sunPosition(_traceDate);
+      const idx = i * 3;
+      if (sunTrace) {
+        FAR_TRACE_BUF[idx + 0] = d[0] * SUN_DISTANCE;
+        FAR_TRACE_BUF[idx + 1] = d[1] * SUN_DISTANCE;
+        FAR_TRACE_BUF[idx + 2] = d[2] * SUN_DISTANCE;
       }
-      if (surfPositions) {
-        surfPositions[i * 3 + 0] = d[0] * SURFACE_R;
-        surfPositions[i * 3 + 1] = d[1] * SURFACE_R;
-        surfPositions[i * 3 + 2] = d[2] * SURFACE_R;
+      if (subsolarTrace) {
+        SURF_TRACE_BUF[idx + 0] = d[0] * SURFACE_RING_R;
+        SURF_TRACE_BUF[idx + 1] = d[1] * SURFACE_RING_R;
+        SURF_TRACE_BUF[idx + 2] = d[2] * SURFACE_RING_R;
       }
     }
-    if (sunTrace) sunTrace.geometry.setPositions(farPositions);
-    if (subsolarTrace) subsolarTrace.geometry.setPositions(surfPositions);
+    if (sunTrace) sunTrace.geometry.setPositions(FAR_TRACE_BUF);
+    if (subsolarTrace) subsolarTrace.geometry.setPositions(SURF_TRACE_BUF);
   }
 }
 
