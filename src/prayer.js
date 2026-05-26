@@ -1,6 +1,6 @@
 import * as adhan from "adhan";
 import { classifyPrayer, sunPosition } from "./solar.js";
-import { POLAR_METHODS, getMethod, PRESETS, getPreset } from "./settings.js";
+import { POLAR_METHODS, getMethod, PRESETS, getPreset, PRESET_META } from "./settings.js";
 import { snapToNearestHighLatCity, distanceToNearestCityKm } from "./highLatCities.js";
 
 const DEG = Math.PI / 180;
@@ -60,12 +60,23 @@ const PRAYER_META = [
 //     sunset convention (refraction + solar semi-diameter). Without
 //     it, the cap kicks in ~14 days/year earlier at φ ≈ 68°N than
 //     Adhan actually returns NaN.
-// Project to the closer of the two thresholds per hemisphere. Same
-// threshold math is mirrored in the fragment shader, where every cap
-// pixel is rendered with its projection point's schedule via an
-// effective-latitude clamp.
-const FAJR_LIMIT_DEG = 74;
+// Project to the closer of the two thresholds per hemisphere. The
+// fragment shader still uses FAJR_LIMIT_DEG = 74 (the Leva Qom default)
+// regardless of preset — see earthMaterial.js's docblock; Stage 3.2
+// will make the shader preset-aware. The computational path here, by
+// contrast, derives the Fajr limit from the active preset's fajrAngle
+// (16° for Leva Qom → 74° limit; 17.7° for Tehran → 72.3° limit), so
+// the panel's "in cap" decision tracks the user's selected angle even
+// while the shader stays at the Leva Qom cap. The two diverge by up
+// to ~1.7° of latitude near the seasonal cap edge under Tehran.
 const DAY_LIMIT_DEG = 90 + 50 / 60;  // 90.8333…
+
+// Active Fajr angle, in degrees, for the selected preset. PRESET_META
+// is a frozen lookup table in settings.js; falling back to 16° on a
+// non-preset code path keeps existing behavior intact.
+function activeFajrAngleDeg() {
+  return PRESET_META[getPreset()]?.angles?.fajr ?? 16;
+}
 // Adhan's correctedHourAngle computes
 //   H = acos((sin(α) - sin(φ)·sin(δ)) / (cos(φ)·cos(δ)))
 // which approaches acos(±1) at the cap edge and goes NaN under
@@ -80,16 +91,25 @@ const DAY_LIMIT_DEG = 90 + 50 / 60;  // 90.8333…
 // the apparent-horizon correction consumed it.
 const SAFE_MARGIN_DEG = 0.05;
 
-export function aqrabProjection(latDeg, date = new Date()) {
+export function aqrabProjection(latDeg, date = new Date(), opts = {}) {
   const { declination } = sunPosition(date);
   const declDeg = (declination * 180) / Math.PI;
+  // Preset-aware Fajr limit. Tehran (17.7°) → 72.3°; Leva Qom (16°)
+  // → 74°. Callers that want to force a specific limit can pass
+  // opts.fajrAngleDeg; otherwise the active preset is used. main.js's
+  // pinSourceForMethod calls without opts so the pin tracks the
+  // user's currently-selected preset.
+  const fajrAngleDeg = Number.isFinite(opts.fajrAngleDeg)
+    ? opts.fajrAngleDeg
+    : activeFajrAngleDeg();
+  const fajrLimitDeg = 90 - fajrAngleDeg;
   // Cap membership uses the TRUE threshold — a user at the boundary
   // latitude has computable times and should not be forced into the
   // projection. SAFE_MARGIN_DEG applies only to the projection target
   // so Adhan's correctedHourAngle has numerical headroom from the
   // cosH = ±1 singularity when we DO project.
-  const northTrue = Math.min(FAJR_LIMIT_DEG - declDeg, DAY_LIMIT_DEG + declDeg);
-  const southTrue = Math.max(-FAJR_LIMIT_DEG - declDeg, -DAY_LIMIT_DEG + declDeg);
+  const northTrue = Math.min(fajrLimitDeg - declDeg, DAY_LIMIT_DEG + declDeg);
+  const southTrue = Math.max(-fajrLimitDeg - declDeg, -DAY_LIMIT_DEG + declDeg);
   if (latDeg > northTrue) return { projectedFromLat: northTrue - SAFE_MARGIN_DEG };
   if (latDeg < southTrue) return { projectedFromLat: southTrue + SAFE_MARGIN_DEG };
   return null;
@@ -151,27 +171,33 @@ function anchorMaghrib(times) {
 // removed before Stage 3 if noisy.
 let _sunriseFallbackWarned = false;
 
-// Fajr at -16° is physically reachable at (latDeg, date) iff the
-// sun's minimum altitude that day is at or below -16°. Equivalently,
-// |φ + δ| ≤ 90° − 16° = 74° = FAJR_LIMIT_DEG.
+// Fajr at the preset's depression angle (16° Leva Qom / 17.7° Tehran)
+// is physically reachable at (latDeg, date) iff the sun's minimum
+// altitude that day is at or below that angle (i.e., |φ + δ| ≤ 90° −
+// fajrAngleDeg).
 //
 // ADHAN'S DEFAULTS WILL LIE TO YOU: adhan's CalculationParameters
 // default highLatitudeRule = middleofthenight, which synthesizes a
 // "Fajr" value (actually a midnight-rule fallback) at latitudes where
-// the -16° angle is never astronomically reached. So isValidDate(t.
-// fajr) alone is not a usable signal for "did the sun reach -16°
-// today" — it conflates real Fajr with synthesized midnight. Using
-// the synthesized value as the anchor for endOfNight() would
-// silently double-apply the midnight rule.
+// the fajr angle is never astronomically reached. So isValidDate(t.
+// fajr) alone is not a usable signal for "did the sun reach this
+// depression today" — it conflates real Fajr with synthesized
+// midnight. Using the synthesized value as the anchor for endOfNight()
+// would silently double-apply the midnight rule.
 //
 // This is the canonical pattern anywhere in this codebase that needs
 // "did the sun actually reach depression θ on date D at latitude φ":
 // check sunMinAltitudeRad(φ, D) ≤ θ directly. Do NOT trust adhan's
 // non-NaN return value.
-const FAJR_REACHABLE_THRESHOLD_RAD = -16 * DEG;
-function reachableFajr(latDeg, date, adhanFajr) {
+//
+// fajrAngleDeg must be passed by callers (paramsForPreset's
+// CalculationParameters object exposes .fajrAngle). Defaulting here
+// would couple this helper to the global preset state; callers
+// already have params in hand.
+function reachableFajr(latDeg, date, adhanFajr, fajrAngleDeg) {
   if (!isValidDate(adhanFajr)) return null;
-  if (sunMinAltitudeRad(latDeg, date) > FAJR_REACHABLE_THRESHOLD_RAD) return null;
+  const thresholdRad = -fajrAngleDeg * DEG;
+  if (sunMinAltitudeRad(latDeg, date) > thresholdRad) return null;
   return adhanFajr;
 }
 
@@ -512,10 +538,16 @@ function midnightTimes(latDeg, lonDeg, date, params) {
   // passes arbitrary times-of-day to getTimesForLocation. Without
   // this, the reachability decision for today could flip across UTC
   // day boundaries while tomorrow's stays put.
+  // params.fajrAngle drives reachableFajr(), so Tehran (17.7°) and
+  // Leva Qom (16°) each check against their own depression. Without
+  // this Tehran would still use a 16° reachability threshold and
+  // could treat a synthesized middle-of-night Fajr as "reachable"
+  // in the 72.3°-74° band.
+  const fajrAngleDeg = params.fajrAngle ?? 16;
   const todayDate    = addDays(date, 0);
   const tomorrowDate = addDays(date, 1);
-  const todayFajr    = reachableFajr(latDeg, todayDate,    today.fajr);
-  const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr);
+  const todayFajr    = reachableFajr(latDeg, todayDate,    today.fajr,    fajrAngleDeg);
+  const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr, fajrAngleDeg);
   const ctxLast = { latDeg, lonDeg, date: todayDate,    method: 4 };
   const ctxThis = { latDeg, lonDeg, date: tomorrowDate, method: 4 };
   const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctxLast);
@@ -588,10 +620,13 @@ function seventhTimes(latDeg, lonDeg, date, params) {
   // Fajr-date per endOfNight call AND normalize today's date to UTC
   // noon to match tomorrow's normalization (see midnightTimes for the
   // same rationale).
+  // Preset-aware reachability check (see midnightTimes for the
+  // rationale).
+  const fajrAngleDeg = params.fajrAngle ?? 16;
   const todayDate    = addDays(date, 0);
   const tomorrowDate = addDays(date, 1);
-  const todayFajr    = reachableFajr(latDeg, todayDate,    today.fajr);
-  const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr);
+  const todayFajr    = reachableFajr(latDeg, todayDate,    today.fajr,    fajrAngleDeg);
+  const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr, fajrAngleDeg);
   const ctxLast = { latDeg, lonDeg, date: todayDate,    method: 5 };
   const ctxThis = { latDeg, lonDeg, date: tomorrowDate, method: 5 };
   const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctxLast);
@@ -656,8 +691,15 @@ function angleReducedTimes(latDeg, lonDeg, date, params) {
     // midnightTimes directly, which catches both sites.
     return midnightTimes(latDeg, lonDeg, date, params);
   }
-  const fajrAngleDeg = Math.min(16, Math.max(0, -sunMinDeg));
-  const ishaAngleDeg = Math.min(14, Math.max(0, -sunMinDeg));
+  // Cap the reduction at the preset's configured angles (16°/14° Leva
+  // Qom, 17.7°/14° Tehran), not hard-coded constants. Otherwise Tehran
+  // would silently degrade its Fajr threshold to 16° whenever
+  // conditions allow deeper twilight — producing a schedule that
+  // doesn't match the user's selected preset.
+  const presetFajrMax = params.fajrAngle ?? 16;
+  const presetIshaMax = params.ishaAngle ?? 14;
+  const fajrAngleDeg = Math.min(presetFajrMax, Math.max(0, -sunMinDeg));
+  const ishaAngleDeg = Math.min(presetIshaMax, Math.max(0, -sunMinDeg));
 
   // Derive from the passed params (not a fresh paramsForPreset()) so any
   // upstream customization — e.g., a future caller tweaking madhab or
