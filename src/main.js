@@ -28,10 +28,35 @@ function setDPR(dpr) {
   currentDPR = dpr;
   renderer.setPixelRatio(dpr);
   renderer.setSize(window.innerWidth, window.innerHeight, false);
+  // LineMaterial.resolution must track the drawing-buffer size, not
+  // CSS pixels — pixel-width strokes drift when DPR flips between
+  // HI/LO during motion otherwise.
+  refreshLineResolutions();
 }
 renderer.setPixelRatio(HI_DPR);
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+// Vector2 reused by refreshLineResolutions() to avoid one per-call
+// allocation on every DPR flip and window resize.
+const _drawSize = new THREE.Vector2();
+function lineResolution() {
+  // Drawing-buffer size = CSS pixels × DPR. LineMaterial expects this
+  // (NOT window.innerWidth/Height) — without it, strokes render at
+  // wrong pixel widths on high-DPI screens.
+  //
+  // Allocates a fresh Vector2 per call by design: each LineMaterial
+  // owns its own resolution vector that refreshLineResolutions()
+  // mutates via .copy(), so they must not be aliased.
+  return renderer.getDrawingBufferSize(new THREE.Vector2());
+}
+function refreshLineResolutions() {
+  renderer.getDrawingBufferSize(_drawSize);
+  const lines = [qiblaLine, projectionLine, sunLine, equatorLine, sunTrace, subsolarTrace];
+  for (const l of lines) {
+    if (l) l.material.resolution.copy(_drawSize);
+  }
+}
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070d);
@@ -153,7 +178,25 @@ let projectionPin = null;
 let projectionLine = null;
 let sunGroup = null;
 let sunLine = null;
+let equatorLine = null;
+let sunTrace = null;
+let subsolarTrace = null;
 const SUN_DISTANCE = 60;
+// Radius at which surface reference rings (equator, subsolar trace)
+// sit above the textured sphere — 1.4% lift avoids z-fighting and
+// matches the projection-arc convention.
+const SURFACE_RING_R = 1.014;
+// 24-hour window for the sun-path trace (matches the hour-scrubber
+// range of ±12h). Sampled at this many segments — declination drift
+// over 24h is sub-degree so coarse sampling reads as a smooth arc.
+const SUN_TRACE_SEGMENTS = 96;
+const SUN_TRACE_HALF_MS = 12 * 3600 * 1000;
+// Preallocated buffers + Date so the trace re-sample on every
+// scrubber input doesn't churn the GC (avoids per-segment
+// `new Date()` and per-call `new Array()` allocations).
+const FAR_TRACE_BUF = new Float32Array((SUN_TRACE_SEGMENTS + 1) * 3);
+const SURF_TRACE_BUF = new Float32Array((SUN_TRACE_SEGMENTS + 1) * 3);
+const _traceDate = new Date();
 
 (async function init() {
   const dayTex = await loadTex(DAY_TEXTURE);
@@ -215,12 +258,35 @@ const SUN_DISTANCE = 60;
   sunLine = makeSunLine();
   scene.add(sunLine);
 
+  // Reference ring at lat=0 on Earth's surface. Static — added to
+  // earthGroup so it travels with the planet (currently earthGroup
+  // doesn't rotate, but keeping it grouped is correct in principle).
+  equatorLine = makeEquatorLine();
+  earthGroup.add(equatorLine);
+
+  // 24-hour sun-path arc — the trace the sun-line endpoint sweeps as
+  // the user scrubs ±12h. Lives in world space (sun does too) and is
+  // re-sampled in updateSunUniforms so it stays centred on the
+  // effective time.
+  sunTrace = makeSunTrace();
+  scene.add(sunTrace);
+
+  // Same 24h path but projected onto Earth's surface — traces the
+  // subsolar point (where the sun is directly overhead) as the
+  // scrubber moves. Sits just above the texture like the equator.
+  subsolarTrace = makeSubsolarTrace();
+  earthGroup.add(subsolarTrace);
+
   // Seed sun-driven objects (shader sunDir uniform, sunGroup position,
-  // sunLine endpoints) once before the first paint. Without this,
-  // updateSunUniforms only fires on the throttled 500ms tick — on a
-  // cache-warm load the first frame can render with placeholder
-  // geometry and a flash of the wrong lighting.
+  // sunLine endpoints, sun-trace positions) once before the first
+  // paint. Without this, updateSunUniforms only fires on the
+  // throttled 500ms tick — on a cache-warm load the first frame can
+  // render with placeholder geometry and a flash of the wrong
+  // lighting. updateSunUniforms only marks _tracesDirty; resample
+  // explicitly here so the first frame doesn't show placeholders.
   updateSunUniforms(effectiveNow());
+  resampleTraces();
+  _tracesDirty = false;
 
   initToggles();
   initScrubber();
@@ -323,13 +389,76 @@ function makeSunLine() {
     linewidth: 1.5,
     transparent: true,
     opacity: 0.55,
-    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+    resolution: lineResolution(),
   });
   const line = new Line2(geo, mat);
   // setPositions only rewrites the instance buffer, not the bounding
   // sphere — without disabling culling the line vanishes whenever its
   // computed bounds (stale from the placeholder) fall outside the
   // frustum.
+  line.frustumCulled = false;
+  return line;
+}
+
+function makeEquatorLine() {
+  // Closed ring at lat=0 on Earth's surface, lifted by SURFACE_RING_R
+  // above the texture so it sits proud without z-fighting. depthTest
+  // stays on so Earth occludes the back half of the ring — otherwise
+  // the globe reads as see-through.
+  const N = 256;
+  const positions = [];
+  for (let i = 0; i <= N; i++) {
+    const lon = (i / N) * 2 * Math.PI;
+    const v = latLonToVec3(0, lon);
+    positions.push(v[0] * SURFACE_RING_R, v[1] * SURFACE_RING_R, v[2] * SURFACE_RING_R);
+  }
+  const geo = new LineGeometry();
+  geo.setPositions(positions);
+  const mat = new LineMaterial({
+    color: 0x6cd0c4,
+    linewidth: 1.8,
+    transparent: true,
+    opacity: 0.85,
+    resolution: lineResolution(),
+  });
+  return new Line2(geo, mat);
+}
+
+function makeSunTrace() {
+  // Polyline tracing the sun's position across the ±12h window
+  // centred on the effective time. Positions are placeholders here
+  // — updateSunUniforms re-samples them on every tick.
+  const geo = new LineGeometry();
+  geo.setPositions(new Array((SUN_TRACE_SEGMENTS + 1) * 3).fill(0));
+  const mat = new LineMaterial({
+    color: 0xffd966,
+    linewidth: 1.6,
+    transparent: true,
+    opacity: 0.7,
+    resolution: lineResolution(),
+  });
+  const line = new Line2(geo, mat);
+  line.frustumCulled = false;
+  return line;
+}
+
+function makeSubsolarTrace() {
+  // Same 24h path the sun-trace draws, but at Earth's surface — the
+  // subsolar point's track. Lifted to SURFACE_RING_R to match the
+  // equator. depthTest on so Earth occludes the back half (no
+  // see-through). Deep orange instead of the far-trace yellow so
+  // the line stays legible against desert tones in the Blue Marble
+  // texture.
+  const geo = new LineGeometry();
+  geo.setPositions(new Array((SUN_TRACE_SEGMENTS + 1) * 3).fill(0));
+  const mat = new LineMaterial({
+    color: 0xff5522,
+    linewidth: 1.8,
+    transparent: true,
+    opacity: 0.95,
+    resolution: lineResolution(),
+  });
+  const line = new Line2(geo, mat);
   line.frustumCulled = false;
   return line;
 }
@@ -396,7 +525,7 @@ function setQiblaFrom(latDeg, lonDeg) {
     transparent: true,
     opacity: 1.0,
     depthTest: false,
-    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+    resolution: lineResolution(),
   });
   qiblaLine = new Line2(geom, mat);
   qiblaLine.renderOrder = 2;
@@ -481,7 +610,7 @@ function setProjectionViz(actualLatDeg, actualLonDeg, targetLatDeg, targetLonDeg
     transparent: true,
     opacity: 0.9,
     depthTest: false,
-    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+    resolution: lineResolution(),
   });
   projectionLine = new Line2(geom, mat);
   projectionLine.renderOrder = 2;
@@ -576,6 +705,96 @@ function updateSunUniforms(date) {
       sunDir[2] * SUN_DISTANCE,
     ]);
   }
+  if (sunTrace || subsolarTrace) {
+    // Mark traces dirty — actual resample is coalesced to one per
+    // animation frame in tick(), so a fast scrubber drag (input
+    // events at 60+ Hz) doesn't run 97 sunPosition() calls each.
+    _tracesDirty = true;
+  }
+}
+
+let _tracesDirty = true;
+function resampleTraces() {
+  if (!sunTrace && !subsolarTrace) return;
+  // Anchor the 24h window to a stable reference rather than the
+  // scrubbed date, so the user sees the sun marker SLIDE along a
+  // fixed trace as they drag the hour scrubber instead of the
+  // trace shifting with the marker. In day mode the user is
+  // moving through the year by full days — anchor to the scrubbed
+  // date so the orange ring migrates between the tropics as
+  // declination changes.
+  const center = scrubMode === "h" ? Date.now() : (Date.now() + scrubOffsetMs);
+  const t0 = center - SUN_TRACE_HALF_MS;
+  const step = (2 * SUN_TRACE_HALF_MS) / SUN_TRACE_SEGMENTS;
+  // Reuse FAR_TRACE_BUF / SURF_TRACE_BUF / _traceDate to skip the
+  // JS-array and Date allocations the previous version had per
+  // tick. sunPosition() itself still allocates its result object +
+  // sunDir array per call (~194 short-lived objects per resample);
+  // that's confined to solar.js and out of scope for this loop.
+  for (let i = 0; i <= SUN_TRACE_SEGMENTS; i++) {
+    _traceDate.setTime(t0 + i * step);
+    const { sunDir: d } = sunPosition(_traceDate);
+    const idx = i * 3;
+    if (sunTrace) {
+      FAR_TRACE_BUF[idx + 0] = d[0] * SUN_DISTANCE;
+      FAR_TRACE_BUF[idx + 1] = d[1] * SUN_DISTANCE;
+      FAR_TRACE_BUF[idx + 2] = d[2] * SUN_DISTANCE;
+    }
+    if (subsolarTrace) {
+      SURF_TRACE_BUF[idx + 0] = d[0] * SURFACE_RING_R;
+      SURF_TRACE_BUF[idx + 1] = d[1] * SURFACE_RING_R;
+      SURF_TRACE_BUF[idx + 2] = d[2] * SURFACE_RING_R;
+    }
+  }
+  // LineGeometry.setPositions allocates a fresh Float32Array per
+  // call (size 2 * vertex_count) plus an InstancedInterleavedBuffer
+  // — at scrubber-drag rates that's measurable GC churn. Write the
+  // interleaved start/end buffer in place instead.
+  if (sunTrace) updateTraceInPlace(sunTrace.geometry, FAR_TRACE_BUF);
+  if (subsolarTrace) updateTraceInPlace(subsolarTrace.geometry, SURF_TRACE_BUF);
+}
+
+// Update a LineGeometry's instanceStart/instanceEnd interleaved
+// buffer in place from a flat [x,y,z, x,y,z, ...] vertex array. Lets
+// us replace LineGeometry.setPositions for the per-tick trace
+// updates without allocating. Assumes the geometry was sized by a
+// prior setPositions call with the same vertex count (so the buffer
+// already has the right length).
+//
+// Reaches into three.js LineSegmentsGeometry internals
+// (attributes.instanceStart.data.array). The contract we depend on
+// is: both attributes share one interleaved buffer with stride 6
+// (start xyz + end xyz per segment), big enough for the segments
+// we're writing. Anything else (three.js layout refactor, geometry
+// not sized yet) falls back to the public setPositions API.
+function updateTraceInPlace(geometry, vertices) {
+  const segments = vertices.length / 3 - 1;
+  const startAttr = geometry.attributes.instanceStart;
+  const endAttr = geometry.attributes.instanceEnd;
+  const ib = startAttr && startAttr.data;
+  if (
+    !ib ||
+    !endAttr ||
+    endAttr.data !== ib ||
+    ib.stride !== 6 ||
+    !ib.array ||
+    ib.array.length < segments * 6
+  ) {
+    geometry.setPositions(vertices);
+    return;
+  }
+  const arr = ib.array;
+  for (let i = 0; i < segments; i++) {
+    const o = i * 6;
+    const p = i * 3;
+    arr[o + 0] = vertices[p + 0];
+    arr[o + 1] = vertices[p + 1];
+    arr[o + 2] = vertices[p + 2];
+    arr[o + 3] = vertices[p + 3];
+    arr[o + 4] = vertices[p + 4];
+    arr[o + 5] = vertices[p + 5];
+  }
+  ib.needsUpdate = true;
 }
 
 const clockEl = document.getElementById("clock");
@@ -763,6 +982,13 @@ function start() {
       lastUniformUpdate = t;
       dirty = true;
     }
+    if (_tracesDirty) {
+      // Coalesce rapid updateSunUniforms() calls (scrubber drags
+      // fire input events at 60+ Hz) to one trace resample per frame.
+      resampleTraces();
+      _tracesDirty = false;
+      dirty = true;
+    }
     const moving = controls.update();
     if (moving) {
       lastMotion = t;
@@ -785,12 +1011,11 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight, false);
-  // Line2's pixel width depends on the resolution uniform — without these
-  // updates, both arcs would render with stale widths until the user
-  // selected a new location and the lines were rebuilt.
-  if (qiblaLine) qiblaLine.material.resolution.set(window.innerWidth, window.innerHeight);
-  if (projectionLine) projectionLine.material.resolution.set(window.innerWidth, window.innerHeight);
-  if (sunLine) sunLine.material.resolution.set(window.innerWidth, window.innerHeight);
+  // LineMaterial.resolution must track the drawing-buffer size for
+  // correct pixel-width strokes. refreshLineResolutions covers every
+  // active Line2 overlay (qibla, projection, sun line, equator, both
+  // 24h traces); add new lines to its list when introducing them.
+  refreshLineResolutions();
   markDirty();
 });
 
