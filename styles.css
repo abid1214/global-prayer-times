@@ -430,6 +430,12 @@ html, body {
   border-radius: 12px;
   padding: 22px 26px 22px;
   max-width: 460px;
+  /* Match #infoModal: cap height and scroll the body so the close /
+     dismiss controls stay reachable on small screens or with large
+     accessibility font sizes. Without this the dialog can grow past
+     the viewport and the buttons get pushed off-screen. */
+  max-height: 80vh;
+  overflow-y: auto;
   color: var(--fg);
   font-size: 13px;
   line-height: 1.6;

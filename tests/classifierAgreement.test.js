@@ -152,6 +152,16 @@ try { savedPresetStorage = localStorage.getItem(PRESET_STORAGE_KEY); } catch (_)
 const originalMethod = getMethod();
 const originalPreset = getPreset();
 try {
+  // Force JAFARI for the main FIXTURES loop: classifyPrayer() in
+  // solar.js (the shader mirror) hard-codes 16°/4°/14° thresholds,
+  // so the clock-vs-sun agreement assertions only hold when the
+  // schedule was computed with those same Leva Qom angles. A
+  // contributor running the test page with `gpt.preset=tehran`
+  // persisted (or `?preset=tehran` in the URL) would otherwise see
+  // spurious failures from the angle mismatch. The finally block
+  // restores the user's actual preset. Stage 1 acceptance tests
+  // (further below) override preset explicitly per case.
+  setPreset(PRESETS.JAFARI);
   for (const fx of FIXTURES) {
     const base = new Date(fx.dateISO);
 
