@@ -324,14 +324,18 @@ function describePolarMethod(polarMethod, tz, _date) {
     case "midnight": {
       const out = { primary: `Method: niṣf al-layl (middle of night)` };
       if (polarMethod.endOfNightSource === "sunrise-fallback") {
-        out.secondary = `end of night derived from next sunrise (Fajr unresolvable at this latitude/date)`;
+        // Describes the rule state rather than asserting sunrise was
+        // used — at deep polar latitudes the sunrise anchor itself
+        // may be NaN and the times collapse to NaN, which this label
+        // still applies to.
+        out.secondary = `end-of-night fallback in effect (Fajr unresolvable at this latitude/date)`;
       }
       return out;
     }
     case "seventh": {
       const out = { primary: `Method: sub'iyya (one-seventh)` };
       if (polarMethod.endOfNightSource === "sunrise-fallback") {
-        out.secondary = `end of night derived from next sunrise (Fajr unresolvable at this latitude/date)`;
+        out.secondary = `end-of-night fallback in effect (Fajr unresolvable at this latitude/date)`;
       }
       return out;
     }

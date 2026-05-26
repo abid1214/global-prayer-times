@@ -488,11 +488,14 @@ function warnIfRemoteProjection(latDeg, lonDeg) {
 
 // ---------- method 4: niṣf al-layl (middle of night) ----------
 //
-// We anchor "night start" at Maghrib's -4° boundary (or sunset if -4°
-// doesn't occur) and "night end" at the canonical Ja'farī endpoint:
-// the next Fajr at -16°. This matches the shar'ī midnight definition
-// used throughout the rest of this codebase (½(Maghrib + nextFajr))
-// — Sistani's Dialogue on Prayer; leader.ir /en/content/24743.
+// We anchor "night start" at Maghrib's depression angle (or sunset
+// if Maghrib doesn't occur) and "night end" at the canonical Ja'farī
+// endpoint: the next Fajr at the preset's depression angle (-16°
+// Leva Qom, -17.7° Tehran). reachableFajr() takes the preset's
+// fajrAngle from params and checks physical attainability against
+// it. This matches the shar'ī midnight definition used throughout
+// this codebase (½(Maghrib + nextFajr)) — Sistani's Dialogue on
+// Prayer; leader.ir /en/content/24743.
 //
 // When Fajr is unresolvable at the user's location/date (deep inside
 // the Fajr cap), endOfNight() falls back to the next sunrise — this
@@ -601,11 +604,12 @@ function midnightTimes(latDeg, lonDeg, date, params) {
 // is tonight (today's Maghrib → tomorrow's end-of-night).
 //
 // "End of night" follows the canonical Ja'farī rule (next Fajr at
-// -16°), with sunrise fallback only when Fajr is unresolvable —
-// same endOfNight() helper as midnightTimes. The adhan.js
-// HighLatitudeRule.SeventhOfTheNight reference uses sunrise; we
-// diverge to Fajr to match the Ja'farī shar'ī-midnight definition
-// used elsewhere in this app.
+// the preset's depression angle — -16° Leva Qom, -17.7° Tehran;
+// reachableFajr takes the angle from params), with sunrise fallback
+// only when Fajr is unresolvable — same endOfNight() helper as
+// midnightTimes. The adhan.js HighLatitudeRule.SeventhOfTheNight
+// reference uses sunrise; we diverge to Fajr to match the Ja'farī
+// shar'ī-midnight definition used elsewhere in this app.
 function seventhTimes(latDeg, lonDeg, date, params) {
   const yesterday = computeAdhanAt(latDeg, lonDeg, addDays(date, -1), params);
   const today     = computeAdhanAt(latDeg, lonDeg, date, params);

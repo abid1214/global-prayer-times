@@ -19,12 +19,15 @@ export const PRESET_ORDER = [PRESETS.JAFARI, PRESETS.TEHRAN];
 //
 // IMPORTANT: angles here are NOT purely advisory. They are also read
 // by activeFajrAngleDeg() in src/prayer.js to derive the preset-aware
-// Fajr-cap threshold for aqrabProjection() and reachableFajr(). If
-// you change a preset's fajrAngle here, the cap edge moves with it
-// (Tehran 17.7° → cap at 72.3°N; Leva Qom 16° → cap at 74°N). Keep
-// these in lockstep with the params returned by paramsForPreset()
-// or the panel's "in cap" decision will diverge from the actual
-// computed schedule.
+// Fajr-cap threshold for aqrabProjection(). reachableFajr() takes the
+// Fajr angle from its callers (params.fajrAngle from paramsForPreset's
+// CalculationParameters object), so it does NOT consult PRESET_META
+// directly — but if you change a preset's fajrAngle here without
+// updating paramsForPreset(), the cap edge (which reads PRESET_META)
+// and the reachability check (which reads adhan's params) will
+// disagree. Keep the angles here in lockstep with the params returned
+// by paramsForPreset() or the panel's "in cap" decision will diverge
+// from the actual computed schedule.
 export const PRESET_META = Object.freeze({
   [PRESETS.JAFARI]: Object.freeze({
     id: PRESETS.JAFARI,
