@@ -299,20 +299,29 @@ function makeSun() {
 }
 
 function makeSunLine() {
-  // Two-point line, Earth-center → sun-center. Endpoints are written
-  // every tick in updateSunUniforms; the buffer is sized for two
-  // positions but contents are placeholder until the first update.
-  // depthTest stays on so Earth properly occludes the segment that
-  // passes behind it — that occlusion is the whole point of drawing
-  // the axis (you see the near half, Earth hides the far half).
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
-  const mat = new THREE.LineBasicMaterial({
+  // Two-point line, Earth-center → sun-center, using Line2 so the
+  // stroke has real pixel width (THREE.Line / LineBasicMaterial caps
+  // at 1px on WebGL, effectively invisible against the starfield).
+  // Endpoints are rewritten every tick in updateSunUniforms; the
+  // placeholder positions here are overwritten before first paint.
+  // depthTest stays on so Earth occludes the half of the segment
+  // that passes through its body.
+  const geo = new LineGeometry();
+  geo.setPositions([0, 0, 0, 1, 0, 0]);
+  const mat = new LineMaterial({
     color: 0xfff5cc,
+    linewidth: 1.5,
     transparent: true,
-    opacity: 0.22,
+    opacity: 0.55,
+    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
   });
-  return new THREE.Line(geo, mat);
+  const line = new Line2(geo, mat);
+  // setPositions only rewrites the instance buffer, not the bounding
+  // sphere — without disabling culling the line vanishes whenever its
+  // computed bounds (stale from the placeholder) fall outside the
+  // frustum.
+  line.frustumCulled = false;
+  return line;
 }
 
 function makeProjectionPin() {
@@ -550,12 +559,12 @@ function updateSunUniforms(date) {
     );
   }
   if (sunLine) {
-    const arr = sunLine.geometry.attributes.position.array;
-    arr[0] = 0; arr[1] = 0; arr[2] = 0;
-    arr[3] = sunDir[0] * SUN_DISTANCE;
-    arr[4] = sunDir[1] * SUN_DISTANCE;
-    arr[5] = sunDir[2] * SUN_DISTANCE;
-    sunLine.geometry.attributes.position.needsUpdate = true;
+    sunLine.geometry.setPositions([
+      0, 0, 0,
+      sunDir[0] * SUN_DISTANCE,
+      sunDir[1] * SUN_DISTANCE,
+      sunDir[2] * SUN_DISTANCE,
+    ]);
   }
 }
 
@@ -771,6 +780,7 @@ window.addEventListener("resize", () => {
   // selected a new location and the lines were rebuilt.
   if (qiblaLine) qiblaLine.material.resolution.set(window.innerWidth, window.innerHeight);
   if (projectionLine) projectionLine.material.resolution.set(window.innerWidth, window.innerHeight);
+  if (sunLine) sunLine.material.resolution.set(window.innerWidth, window.innerHeight);
   markDirty();
 });
 
