@@ -209,10 +209,18 @@ const SUN_DISTANCE = 60;
   sunGroup = makeSun();
   scene.add(sunGroup);
 
-  // Faint sun-to-Earth axis line. Endpoints are rewritten every tick
-  // alongside sunGroup.position so the line tracks the scrubbed sun.
+  // Faint sun-to-Earth axis line. Endpoints are rewritten alongside
+  // sunGroup.position whenever updateSunUniforms runs so the line
+  // tracks the scrubbed sun.
   sunLine = makeSunLine();
   scene.add(sunLine);
+
+  // Seed sun-driven objects (shader sunDir uniform, sunGroup position,
+  // sunLine endpoints) once before the first paint. Without this,
+  // updateSunUniforms only fires on the throttled 500ms tick — on a
+  // cache-warm load the first frame can render with placeholder
+  // geometry and a flash of the wrong lighting.
+  updateSunUniforms(effectiveNow());
 
   initToggles();
   initScrubber();
@@ -302,10 +310,12 @@ function makeSunLine() {
   // Two-point line, Earth-center → sun-center, using Line2 so the
   // stroke has real pixel width (THREE.Line / LineBasicMaterial caps
   // at 1px on WebGL, effectively invisible against the starfield).
-  // Endpoints are rewritten every tick in updateSunUniforms; the
-  // placeholder positions here are overwritten before first paint.
-  // depthTest stays on so Earth occludes the half of the segment
-  // that passes through its body.
+  // Endpoints are rewritten by updateSunUniforms — once at init,
+  // again on every scrubber input, and on the 500ms throttled live
+  // tick. The placeholder positions here are overwritten by that
+  // init-time call before the first paint. depthTest stays on so
+  // Earth occludes the half of the segment that passes through its
+  // body.
   const geo = new LineGeometry();
   geo.setPositions([0, 0, 0, 1, 0, 0]);
   const mat = new LineMaterial({
