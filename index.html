@@ -168,6 +168,17 @@
       </div>
     </div>
 
+    <!-- one-time intro modal for the new Marja' / preset choice -->
+    <div id="presetIntroOverlay" hidden>
+      <div id="presetIntroModal" role="dialog" aria-modal="true" aria-labelledby="presetIntroTitle">
+        <button id="presetIntroClose" aria-label="Close">&times;</button>
+        <h2 id="presetIntroTitle">New: Mar&#x100;ja&#x2018; / Calculation Method</h2>
+        <p>You can now choose between two Shia calculation methods. <strong>Leva Qom</strong> (Sistani-aligned, 16&deg; Fajr / 4&deg; Maghrib / 14&deg; Isha) stays the default and is what most English-language Shia calendars use. <strong>Tehran</strong> (Khamenei-aligned, 17.7&deg; / 4.5&deg; / 14&deg;) is the official Iranian government default.</p>
+        <p>Switch any time from the settings gear in the top-right.</p>
+        <button id="presetIntroDismiss" class="presetIntroDismiss">Got it</button>
+      </div>
+    </div>
+
     <!-- settings slide-over -->
     <div id="settingsOverlay" hidden>
       <div id="settingsBackdrop"></div>
@@ -177,6 +188,33 @@
           <h2 id="settingsTitle">Settings</h2>
           <button id="settingsClose" aria-label="Close">&times;</button>
         </header>
+
+        <section class="settings-group">
+          <h3>Mar&#x100;ja&#x2018; / Calculation method</h3>
+          <p class="group-hint">Both presets compute Ja'far&#x12b; (Shia) prayer times. They differ only in the angles used for Fajr and Maghrib (Isha is 14&deg; for both). They agree to within ~2 minutes at temperate latitudes.</p>
+
+          <div class="method-option">
+            <label class="method-option-row">
+              <input type="radio" name="preset" value="jafari" />
+              <span class="method-body">
+                <span class="method-title">Leva Qom &mdash; 16&deg; / 4&deg; / 14&deg;</span>
+                <span class="method-desc">Shia Ithn&#x101;-Ashar&#x12b;, Leva Institute, Qum. Sistani-aligned. Used by most English-language Shia calendars.</span>
+              </span>
+            </label>
+          </div>
+
+          <div class="method-option">
+            <label class="method-option-row">
+              <input type="radio" name="preset" value="tehran" />
+              <span class="method-body">
+                <span class="method-title">Tehran &mdash; 17.7&deg; / 4.5&deg; / 14&deg;</span>
+                <span class="method-desc">Institute of Geophysics, University of Tehran. Khamenei-aligned. Official Iranian government calendar default.</span>
+              </span>
+            </label>
+          </div>
+
+          <p class="group-hint" style="margin-top:10px">The globe coloring uses Leva Qom angles; the panel reflects your selected preset. Stage 3.2 will make the shader preset-aware.</p>
+        </section>
 
         <section class="settings-group">
           <h3>High-latitude method</h3>

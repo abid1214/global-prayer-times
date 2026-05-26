@@ -1,6 +1,6 @@
 import * as adhan from "adhan";
 import { getTimesForLocation, PRAYER_META } from "./prayer.js";
-import { subscribe as subscribeMethod } from "./settings.js";
+import { subscribe as subscribeMethod, subscribePreset } from "./settings.js";
 
 const panel = document.getElementById("panel");
 const panelLocation = document.getElementById("panelLocation");
@@ -30,6 +30,11 @@ let lastRender = null;
 // when the user picks a new location, so the count stays bounded.
 // settings.js's subscribe() returns an unsubscribe handle.
 let methodUnsub = null;
+// Same lifecycle as methodUnsub but for the Marja'/preset choice. The
+// callback is identical (re-render the panel with new angles) so we
+// could fold them together, but keeping them separate matches the two
+// settings APIs and makes the source of the change obvious from logs.
+let presetUnsub = null;
 // Monotonically increasing token bumped on every showPanelForLocation
 // call. The async timezone resolve compares against this before
 // committing its render — a stale resolution from a previous selection
@@ -359,8 +364,7 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
   // method change while peeking refreshes the peek label too;
   // replaced on the next showPanelForLocation when the user picks
   // a different location.
-  if (methodUnsub) methodUnsub();
-  methodUnsub = subscribeMethod(() => {
+  const onSettingsChange = () => {
     if (!panel.hidden && lastRender) {
       // Full panel open — re-render in place.
       render(lastRender.lat, lastRender.lon, lastRender.date, lastRender.tz);
@@ -371,7 +375,11 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
       lastLocation.currentPrayer = times.currentPrayer;
       showPeek(lastLocation);
     }
-  });
+  };
+  if (methodUnsub) methodUnsub();
+  methodUnsub = subscribeMethod(onSettingsChange);
+  if (presetUnsub) presetUnsub();
+  presetUnsub = subscribePreset(onSettingsChange);
 
   // Resolve tz, then render. If tz-lookup is slow, we render with the
   // approximation immediately, then upgrade once it loads.

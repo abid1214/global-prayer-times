@@ -3,7 +3,7 @@
 // and fans out to subscribers); src/panel.js and src/main.js subscribe
 // for live re-render of the side panel and the projection pin/arc.
 
-import { POLAR_METHODS, getMethod, setMethod } from "./settings.js";
+import { POLAR_METHODS, getMethod, setMethod, PRESET_ORDER, getPreset, setPreset } from "./settings.js";
 
 const overlay = document.getElementById("settingsOverlay");
 const panel   = document.getElementById("settingsPanel");
@@ -12,6 +12,7 @@ const closeBtn = document.getElementById("settingsClose");
 const backdrop = document.getElementById("settingsBackdrop");
 const handle  = document.getElementById("settingsHandle");
 const radios  = document.querySelectorAll('input[name="polarMethod"]');
+const presetRadios = document.querySelectorAll('input[name="preset"]');
 
 // Pending state so rapid open/close cycles don't leak listeners or
 // race each other:
@@ -237,5 +238,50 @@ const known = new Set(Object.values(POLAR_METHODS));
 for (const r of radios) {
   if (!known.has(r.value)) {
     console.error(`[settingsPanel] unknown polar method value in DOM: "${r.value}"`);
+  }
+}
+
+// Initialize the preset radio to whatever's persisted and write back
+// any user selection. setPreset() fans the change out to subscribers
+// (panel.js) so the side panel re-renders with the new angles. Mirrors
+// the polar-method pattern above.
+const currentPreset = getPreset();
+for (const r of presetRadios) {
+  if (r.value === currentPreset) r.checked = true;
+  r.addEventListener("change", (e) => {
+    if (e.target.checked) setPreset(e.target.value);
+  });
+}
+const knownPresets = new Set(PRESET_ORDER);
+for (const r of presetRadios) {
+  if (!knownPresets.has(r.value)) {
+    console.error(`[settingsPanel] unknown preset value in DOM: "${r.value}"`);
+  }
+}
+
+// One-time first-run intro for the new preset choice. Localstorage
+// flag is independent of the persisted preset value so existing users
+// (who already have polar_method set but no gpt.preset yet) see the
+// intro once and then never again. Wrap in try/catch so a private-mode
+// localStorage rejection doesn't crash the dialog setup.
+const PRESET_INTRO_SEEN_KEY = "gpt.presetIntroSeen";
+const introOverlay = document.getElementById("presetIntroOverlay");
+const introClose   = document.getElementById("presetIntroClose");
+const introDismiss = document.getElementById("presetIntroDismiss");
+if (introOverlay && introClose && introDismiss) {
+  let seen = false;
+  try { seen = localStorage.getItem(PRESET_INTRO_SEEN_KEY) === "1"; } catch (_) {}
+  if (!seen) {
+    introOverlay.hidden = false;
+    const dismiss = () => {
+      introOverlay.hidden = true;
+      try { localStorage.setItem(PRESET_INTRO_SEEN_KEY, "1"); } catch (_) {}
+    };
+    introClose.addEventListener("click", dismiss);
+    introDismiss.addEventListener("click", dismiss);
+    // Click-outside on backdrop also dismisses.
+    introOverlay.addEventListener("click", (e) => {
+      if (e.target === introOverlay) dismiss();
+    });
   }
 }

@@ -1,17 +1,41 @@
 import * as adhan from "adhan";
 import { classifyPrayer, sunPosition } from "./solar.js";
-import { POLAR_METHODS, getMethod } from "./settings.js";
+import { POLAR_METHODS, getMethod, PRESETS, getPreset } from "./settings.js";
 import { snapToNearestHighLatCity, distanceToNearestCityKm } from "./highLatCities.js";
 
 const DEG = Math.PI / 180;
 
-// Shia Ja'fari (Leva Institute Qum) parameters: Fajr 16°, Isha 14°, Maghrib 4°.
-// Asr uses shadow factor 1 (Madhab.Shafi in adhan-js).
-function jafariParams() {
-  const params = adhan.CalculationMethod.Other();
-  params.fajrAngle = 16;
-  params.ishaAngle = 14;
-  params.maghribAngle = 4;
+// Preset-aware adhan params factory.
+//   jafari (Leva Institute, Qum)        : Fajr 16°,   Maghrib 4°,   Isha 14°
+//   tehran (Inst. of Geophysics, Tehran): Fajr 17.7°, Maghrib 4.5°, Isha 14°
+//
+// adhan 4.4.3 ships Tehran() as a built-in but does NOT ship a Jafari()
+// factory (see METHODS.md — only 13 methods, none called Jafari). The
+// Leva Qom angles are therefore built manually via Other(), which is
+// what the previous jafariParams() did.
+//
+// Asr shadow factor T = 1 (Ja'farī/Shāfi'ī consensus, NOT Hanafi T = 2)
+// is enforced by setting madhab = Shafi for both presets. (Tehran()
+// already defaults to madhab=Shafi but we set it explicitly so the
+// intent is local to this function and survives any future adhan
+// default change.)
+//
+// Note: adhan 4.4.3 has no `midnightMethod` field — shar'ī midnight is
+// computed independently by classifyPrayer/classifyByClock per the
+// Ja'farī rule (½(Maghrib + nextFajr)), so switching presets does not
+// risk a midnight-semantics flip downstream.
+function paramsForPreset(presetId) {
+  const p = presetId ?? getPreset();
+  let params;
+  if (p === PRESETS.TEHRAN) {
+    params = adhan.CalculationMethod.Tehran();
+  } else {
+    // Leva Qom — build from Other() with the canonical Ja'farī angles.
+    params = adhan.CalculationMethod.Other();
+    params.fajrAngle = 16;
+    params.ishaAngle = 14;
+    params.maghribAngle = 4;
+  }
   params.madhab = adhan.Madhab.Shafi;
   return params;
 }
@@ -97,7 +121,7 @@ function isValidDate(t) {
   return t instanceof Date && Number.isFinite(t.getTime());
 }
 
-function computeAdhanAt(latDeg, lonDeg, date, params = jafariParams()) {
+function computeAdhanAt(latDeg, lonDeg, date, params = paramsForPreset()) {
   const coords = new adhan.Coordinates(latDeg, lonDeg);
   return new adhan.PrayerTimes(coords, date, params);
 }
@@ -290,7 +314,7 @@ function walkBackForValidDay(latDeg, lonDeg, date) {
   // Dates that are internally out of order at marginal polar dates,
   // and accepting those as success silently corrupts the panel's
   // "Now in" indicator.
-  const params = jafariParams();
+  const params = paramsForPreset();
   for (let i = 1; i <= AWQAT_MAX_BACK_DAYS; i++) {
     const trial = addDays(date, -i);
     const t = computeAdhanAt(latDeg, lonDeg, trial, params);
@@ -491,7 +515,7 @@ function angleReducedTimes(latDeg, lonDeg, date, params) {
   const fajrAngleDeg = Math.min(16, Math.max(0, -sunMinDeg));
   const ishaAngleDeg = Math.min(14, Math.max(0, -sunMinDeg));
 
-  // Derive from the passed params (not a fresh jafariParams()) so any
+  // Derive from the passed params (not a fresh paramsForPreset()) so any
   // upstream customization — e.g., a future caller tweaking madhab or
   // adjustments — survives the reduction. Sibling helpers
   // (midnightTimes, seventhTimes) already use `params` directly;
@@ -543,7 +567,7 @@ function angleReducedTimes(latDeg, lonDeg, date, params) {
 
 export function getTimesForLocation(latDeg, lonDeg, date = new Date()) {
   const method = getMethod();
-  const params = jafariParams();
+  const params = paramsForPreset();
   const projection = aqrabProjection(latDeg, date);
 
   // Outside the cap every method collapses to the standard computation.

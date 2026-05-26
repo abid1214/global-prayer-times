@@ -2,6 +2,76 @@
 // localStorage and notifies subscribers on change so the side panel and
 // the projection viz stay in lockstep.
 
+// ---- Marja' / calculation-method preset ----
+
+export const PRESETS = Object.freeze({
+  JAFARI: "jafari",
+  TEHRAN: "tehran",
+});
+
+export const PRESET_ORDER = [PRESETS.JAFARI, PRESETS.TEHRAN];
+
+// Display metadata. Angles are advisory (the actual parameters come from
+// adhan.CalculationMethod.Jafari() / Tehran() in prayer.js); list them
+// here so the UI can show them without importing adhan.
+export const PRESET_META = Object.freeze({
+  [PRESETS.JAFARI]: Object.freeze({
+    id: PRESETS.JAFARI,
+    name: "Shia Ithna-Ashari, Leva Institute, Qum",
+    shortName: "Leva Qom",
+    angles: Object.freeze({ fajr: 16, maghrib: 4, isha: 14 }),
+    note: "Sistani-aligned. Used by most English-language Shia calendars.",
+  }),
+  [PRESETS.TEHRAN]: Object.freeze({
+    id: PRESETS.TEHRAN,
+    name: "Institute of Geophysics, University of Tehran",
+    shortName: "Tehran",
+    angles: Object.freeze({ fajr: 17.7, maghrib: 4.5, isha: 14 }),
+    note: "Khamenei-aligned. Official Iranian government calendar default.",
+  }),
+});
+
+const PRESET_STORAGE_KEY = "gpt.preset";
+const DEFAULT_PRESET = PRESETS.JAFARI;  // preserve existing behavior for current users
+
+const presetSubscribers = new Set();
+let presetCached = null;
+
+function loadPreset() {
+  // URL ?preset= takes precedence at load only — read once, never
+  // written back. Matches the ?m= pattern used by polar-method so a
+  // "share this view with preset X" link works without polluting the
+  // recipient's persisted preference.
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("preset");
+    if (fromUrl && PRESET_ORDER.includes(fromUrl)) return fromUrl;
+  } catch (_) {}
+  try {
+    const stored = localStorage.getItem(PRESET_STORAGE_KEY);
+    if (stored && PRESET_ORDER.includes(stored)) return stored;
+  } catch (_) {}
+  return DEFAULT_PRESET;
+}
+
+export function getPreset() {
+  if (presetCached === null) presetCached = loadPreset();
+  return presetCached;
+}
+
+export function setPreset(preset) {
+  if (!PRESET_ORDER.includes(preset) || preset === presetCached) return;
+  presetCached = preset;
+  try { localStorage.setItem(PRESET_STORAGE_KEY, preset); } catch (_) {}
+  for (const fn of presetSubscribers) fn(preset);
+}
+
+export function subscribePreset(fn) {
+  presetSubscribers.add(fn);
+  return () => presetSubscribers.delete(fn);
+}
+
+// ---- High-latitude polar method ----
+
 export const POLAR_METHODS = Object.freeze({
   AQRAB_SAME_LON:     "aqrab_same_lon",
   AQRAB_NEAREST_CITY: "aqrab_nearest_city",
