@@ -43,47 +43,26 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 
-// Default camera placement: pick the direction that puts the sun
-// exactly behind Earth when the user scrubs the hour scrubber by
-// +12 h from page load. cameraDir = −sunDir(t_load + 12 h), so the
-// camera-Earth-sun line is collinear at that future moment.
+// Default camera placement: sit on the current sun-Earth line, looking
+// back at Earth. The sun's daily rotational plane is at constant
+// declination (a circle parallel to the equator, offset by sin δ along
+// the polar axis), NOT the equatorial plane — at solstice δ ≈ ±23.5°,
+// so dropping the polar-axis component would lift the camera ~23°
+// out of the sun's plane and send the sun above/below the Earth on a
+// +12h scrub. Aligning camera with sunDir directly puts both camera
+// and sun on the same diurnal circle, so a +12h scrub places the sun
+// directly behind Earth.
 //
-// Caveats worth knowing:
-//  • Lit hemisphere is on the visible side at t = 0. The dot product
-//    cameraDir · sunDir(t_load) works out to cos(δ_load + δ_load+12h),
-//    which is ≈ cos 2δ_load. The error budget on that ≈ is the
-//    declination drift over 12 h: up to ~0.2° near the equinoxes
-//    (where dδ/dt peaks at ~0.4°/day) and near zero at the solstices,
-//    so the lit-side guarantee is safe at every time of year. Near
-//    equinox the subsolar point sits near the centre of the visible
-//    disc; at solstice it sits ~47° off-centre but still on the lit
-//    side (cos 46° ≈ 0.68).
-//  • The +12 h alignment is exact at the *moment* of page load. The
-//    scrubber's "+12 h" is computed against fresh Date.now() on
-//    every input, so if the page sits open for hours before the user
-//    scrubs, the rendered sun drifts ~15°/hour of real-time wait
-//    versus the camera's load-time target. In practice users
-//    interact within seconds and the drift is sub-degree; we don't
-//    auto-rotate the camera (that would feel like the camera was
-//    moving on its own).
-//
-// If a ?lat=&lon= link was shared, point at that location instead;
-// the +12 h trick is moot for shared views.
+// If a ?lat=&lon= link was shared, point at that location instead.
 const INITIAL_DISTANCE = 5.5;
 const _initialView = parseUrlLocation();
 {
   let dir;
   if (_initialView) {
-    const v = latLonToVec3(_initialView.latRad, _initialView.lonRad);
-    dir = v;
+    dir = latLonToVec3(_initialView.latRad, _initialView.lonRad);
   } else {
-    // Use the sun's *future* position so the alignment is exact at
-    // load — not an approximation derived from reflecting today's
-    // sunDir, which has slightly different declination + EOT 12 h
-    // out.
-    const t12 = new Date(Date.now() + 12 * 3600 * 1000);
-    const { sunDir: future } = sunPosition(t12);
-    dir = [-future[0], -future[1], -future[2]];
+    const { sunDir } = sunPosition(new Date());
+    dir = sunDir;
   }
   camera.position.set(dir[0] * INITIAL_DISTANCE, dir[1] * INITIAL_DISTANCE, dir[2] * INITIAL_DISTANCE);
   camera.lookAt(0, 0, 0);
@@ -173,6 +152,7 @@ let qiblaLine = null;
 let projectionPin = null;
 let projectionLine = null;
 let sunGroup = null;
+let sunLine = null;
 const SUN_DISTANCE = 60;
 
 (async function init() {
@@ -228,6 +208,19 @@ const SUN_DISTANCE = 60;
   // earth group; position is updated each tick from sunDir.
   sunGroup = makeSun();
   scene.add(sunGroup);
+
+  // Faint sun-to-Earth axis line. Endpoints are rewritten alongside
+  // sunGroup.position whenever updateSunUniforms runs so the line
+  // tracks the scrubbed sun.
+  sunLine = makeSunLine();
+  scene.add(sunLine);
+
+  // Seed sun-driven objects (shader sunDir uniform, sunGroup position,
+  // sunLine endpoints) once before the first paint. Without this,
+  // updateSunUniforms only fires on the throttled 500ms tick — on a
+  // cache-warm load the first frame can render with placeholder
+  // geometry and a flash of the wrong lighting.
+  updateSunUniforms(effectiveNow());
 
   initToggles();
   initScrubber();
@@ -311,6 +304,34 @@ function makeSun() {
   );
   group.add(corona);
   return group;
+}
+
+function makeSunLine() {
+  // Two-point line, Earth-center → sun-center, using Line2 so the
+  // stroke has real pixel width (THREE.Line / LineBasicMaterial caps
+  // at 1px on WebGL, effectively invisible against the starfield).
+  // Endpoints are rewritten by updateSunUniforms — once at init,
+  // again on every scrubber input, and on the 500ms throttled live
+  // tick. The placeholder positions here are overwritten by that
+  // init-time call before the first paint. depthTest stays on so
+  // Earth occludes the half of the segment that passes through its
+  // body.
+  const geo = new LineGeometry();
+  geo.setPositions([0, 0, 0, 1, 0, 0]);
+  const mat = new LineMaterial({
+    color: 0xfff5cc,
+    linewidth: 1.5,
+    transparent: true,
+    opacity: 0.55,
+    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+  });
+  const line = new Line2(geo, mat);
+  // setPositions only rewrites the instance buffer, not the bounding
+  // sphere — without disabling culling the line vanishes whenever its
+  // computed bounds (stale from the placeholder) fall outside the
+  // frustum.
+  line.frustumCulled = false;
+  return line;
 }
 
 function makeProjectionPin() {
@@ -547,6 +568,14 @@ function updateSunUniforms(date) {
       sunDir[2] * SUN_DISTANCE
     );
   }
+  if (sunLine) {
+    sunLine.geometry.setPositions([
+      0, 0, 0,
+      sunDir[0] * SUN_DISTANCE,
+      sunDir[1] * SUN_DISTANCE,
+      sunDir[2] * SUN_DISTANCE,
+    ]);
+  }
 }
 
 const clockEl = document.getElementById("clock");
@@ -761,6 +790,7 @@ window.addEventListener("resize", () => {
   // selected a new location and the lines were rebuilt.
   if (qiblaLine) qiblaLine.material.resolution.set(window.innerWidth, window.innerHeight);
   if (projectionLine) projectionLine.material.resolution.set(window.innerWidth, window.innerHeight);
+  if (sunLine) sunLine.material.resolution.set(window.innerWidth, window.innerHeight);
   markDirty();
 });
 
