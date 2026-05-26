@@ -43,11 +43,12 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 
-// Default camera placement: sit on the sun-Earth line at the current
-// sun direction, looking back at Earth. The sun is then behind the
-// camera, so the fully-lit hemisphere fills the visible disc on load.
-// As the user scrubs time, the sun translates across the world frame
-// and the day/night terminator sweeps across the visible Earth.
+// Default camera placement: sit in the sun's orbital plane (the
+// equatorial plane, y=0 in our frame — y is the polar axis), at the
+// same longitude as the current sun direction, looking back at Earth.
+// Dropping the y component before normalising removes the declination
+// tilt so the camera doesn't rock north/south with the seasons; the
+// sun then sweeps left-right across the screen as the scrubber moves.
 //
 // If a ?lat=&lon= link was shared, point at that location instead.
 const INITIAL_DISTANCE = 5.5;
@@ -58,7 +59,8 @@ const _initialView = parseUrlLocation();
     dir = latLonToVec3(_initialView.latRad, _initialView.lonRad);
   } else {
     const { sunDir } = sunPosition(new Date());
-    dir = sunDir;
+    const len = Math.hypot(sunDir[0], sunDir[2]);
+    dir = [sunDir[0] / len, 0, sunDir[2] / len];
   }
   camera.position.set(dir[0] * INITIAL_DISTANCE, dir[1] * INITIAL_DISTANCE, dir[2] * INITIAL_DISTANCE);
   camera.lookAt(0, 0, 0);
