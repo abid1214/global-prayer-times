@@ -356,26 +356,32 @@ function makeSunLine() {
 }
 
 function makeEquatorLine() {
-  // Closed ring at lat=0 on Earth's surface, lifted 0.5% above so it
-  // sits proud of the texture without z-fighting (mirrors the qibla
-  // / projection-arc convention).
+  // Closed ring at lat=0 on Earth's surface, lifted 1.4% above so it
+  // sits proud of the texture without z-fighting (matches the
+  // projection-arc convention; the qibla arc sits a bit higher at
+  // 1.018). depthTest stays off so the ring is fully visible
+  // (including the back half) — without that, the prayer-band
+  // colouring and the day/night terminator make the line read as
+  // dashed segments wherever it dips behind a darker pixel.
   const N = 256;
   const positions = [];
   for (let i = 0; i <= N; i++) {
     const lon = (i / N) * 2 * Math.PI;
     const v = latLonToVec3(0, lon);
-    positions.push(v[0] * 1.005, v[1] * 1.005, v[2] * 1.005);
+    positions.push(v[0] * 1.014, v[1] * 1.014, v[2] * 1.014);
   }
   const geo = new LineGeometry();
   geo.setPositions(positions);
   const mat = new LineMaterial({
-    color: 0x9ad7ff,
-    linewidth: 1.0,
+    color: 0x6cd0c4,
+    linewidth: 1.8,
     transparent: true,
-    opacity: 0.35,
+    opacity: 0.85,
+    depthTest: false,
     resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
   });
   const line = new Line2(geo, mat);
+  line.renderOrder = 2;
   return line;
 }
 
@@ -386,10 +392,10 @@ function makeSunTrace() {
   const geo = new LineGeometry();
   geo.setPositions(new Array((SUN_TRACE_SEGMENTS + 1) * 3).fill(0));
   const mat = new LineMaterial({
-    color: 0xfff5cc,
-    linewidth: 1.0,
+    color: 0xffd966,
+    linewidth: 1.6,
     transparent: true,
-    opacity: 0.35,
+    opacity: 0.7,
     resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
   });
   const line = new Line2(geo, mat);
