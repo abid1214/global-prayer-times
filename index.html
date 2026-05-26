@@ -158,7 +158,7 @@
           <li><strong>Aqrab al-awq&#x101;t</strong>: walks backward day-by-day from today until a date when the sun reached all five thresholds at your exact location.</li>
           <li><strong>Ni&#x1e63;f al-layl</strong> (middle of night): Isha at the midpoint of (Maghrib, next Fajr); Fajr from the preceding night's midpoint. When Fajr is physically unreachable at this latitude/date, falls back to next sunrise &mdash; the panel notes the substitution.</li>
           <li><strong>Sub'iyya</strong> (one-seventh): Isha at 1/7 of the night past Maghrib; Fajr at 1/7 before end-of-night. Same Fajr / sunrise-fallback anchoring as ni&#x1e63;f al-layl.</li>
-          <li><strong>Angle-based with seasonal reduction</strong>: standard &minus;16&deg;/&minus;14&deg; when reachable; otherwise eased toward the horizon. Falls back to ni&#x1e63;f al-layl in polar-day / ordering edge cases.</li>
+          <li><strong>Angle-based with seasonal reduction</strong>: use the active preset's Fajr / Isha angles when reachable; otherwise reduce toward the horizon (capped at the preset's configured angles). Falls back to ni&#x1e63;f al-layl in polar-day / ordering edge cases.</li>
         </ul>
         <p>For methods 3&ndash;6 (aqrab al-awq&#x101;t and the three non-aqrab rulings) the teal pin is hidden &mdash; the schedule has no spatial projection point to mark &mdash; and the cap visualization on the globe is informational geometry only, distinct from the panel's times. The panel's descriptor line names the schedule source for each method.</p>
         <p><em>Aqrab al-Bil&#x101;d</em> is a widely-accepted Shia position; the specifics of how "nearest locality" is determined vary between mar&#x101;ji'.</p>
@@ -191,7 +191,7 @@
 
         <section class="settings-group">
           <h3>Mar&#x100;ja&#x2018; / Calculation method</h3>
-          <p class="group-hint">Both presets compute Ja'far&#x12b; (Shia) prayer times. They differ only in the angles used for Fajr and Maghrib (Isha is 14&deg; for both). They agree to within ~2 minutes at temperate latitudes.</p>
+          <p class="group-hint">Both presets compute Ja'far&#x12b; (Shia) prayer times. They differ only in the angles used for Fajr and Maghrib (Isha is 14&deg; for both). The resulting time differences depend on latitude and season &mdash; typically a few minutes at the equinoxes and at low latitudes, but Fajr can differ by ~10&ndash;15 minutes near the summer solstice at mid-latitudes (the sun's shallow path makes the extra 1.7&deg; depression take longer to clear).</p>
 
           <div class="method-option">
             <label class="method-option-row">
