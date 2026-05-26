@@ -259,7 +259,7 @@ for (const r of presetRadios) {
   }
 }
 
-// One-time first-run intro for the new preset choice. Localstorage
+// One-time first-run intro for the new preset choice. localStorage
 // flag is independent of the persisted preset value so existing users
 // (who already have polar_method set but no gpt.preset yet) see the
 // intro once and then never again. Wrap in try/catch so a private-mode

@@ -27,7 +27,7 @@ the stage that surfaced it and the proposed disposition.
   Surfaced in Stage 1.4 acceptance writing (the spec's case 6 was
   unverifiable through the public API for this reason).
 
-- **Remove or downgrade the `[gpt] endOfNight` session warn.**
+- **Remove or downgrade the `[prayer] endOfNight` session warn.**
   Diagnostic canary added in Stage 1.2 for catching cap-edge
   surprises. Once Natural Earth expansion (Stage 3.1) lands and the
   cap-related geometry stabilises, consider removing this — or

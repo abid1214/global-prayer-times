@@ -205,7 +205,7 @@ function endOfNight({ nextFajr, nextSunrise }, context) {
     const latStr = Number.isFinite(c.latDeg) ? c.latDeg.toFixed(2) : "n/a";
     const lonStr = Number.isFinite(c.lonDeg) ? c.lonDeg.toFixed(2) : "n/a";
     console.warn(
-      `[gpt] endOfNight: Fajr unresolvable, using sunrise fallback ` +
+      `[prayer] endOfNight: Fajr unresolvable, using sunrise fallback ` +
       `(lat=${latStr}, lon=${lonStr}, date=${dateStr}, method=${c.method ?? "?"})`
     );
   }
@@ -505,10 +505,18 @@ function midnightTimes(latDeg, lonDeg, date, params) {
   // for this-night's end). The diagnostic warn includes the date,
   // so passing a single shared ctx would misreport which day's
   // Fajr was unresolvable when the warn fires on the tomorrow anchor.
+  //
+  // Normalize "today" the same way addDays() normalizes "tomorrow"
+  // (UTC noon) before calling reachableFajr() — sunMinAltitudeRad
+  // is instant-dependent through the declination, and the scrubber
+  // passes arbitrary times-of-day to getTimesForLocation. Without
+  // this, the reachability decision for today could flip across UTC
+  // day boundaries while tomorrow's stays put.
+  const todayDate    = addDays(date, 0);
   const tomorrowDate = addDays(date, 1);
-  const todayFajr    = reachableFajr(latDeg, date,         today.fajr);
+  const todayFajr    = reachableFajr(latDeg, todayDate,    today.fajr);
   const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr);
-  const ctxLast = { latDeg, lonDeg, date,         method: 4 };
+  const ctxLast = { latDeg, lonDeg, date: todayDate,    method: 4 };
   const ctxThis = { latDeg, lonDeg, date: tomorrowDate, method: 4 };
   const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctxLast);
   const thisEnd = endOfNight({ nextFajr: tomorrowFajr, nextSunrise: nextRise }, ctxThis);
@@ -577,12 +585,14 @@ function seventhTimes(latDeg, lonDeg, date, params) {
   const nextRise = tomorrow.sunrise;
 
   // Separate contexts so the diagnostic warn reports the correct
-  // Fajr-date per endOfNight call (see midnightTimes for the same
-  // rationale).
+  // Fajr-date per endOfNight call AND normalize today's date to UTC
+  // noon to match tomorrow's normalization (see midnightTimes for the
+  // same rationale).
+  const todayDate    = addDays(date, 0);
   const tomorrowDate = addDays(date, 1);
-  const todayFajr    = reachableFajr(latDeg, date,         today.fajr);
+  const todayFajr    = reachableFajr(latDeg, todayDate,    today.fajr);
   const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr);
-  const ctxLast = { latDeg, lonDeg, date,         method: 5 };
+  const ctxLast = { latDeg, lonDeg, date: todayDate,    method: 5 };
   const ctxThis = { latDeg, lonDeg, date: tomorrowDate, method: 5 };
   const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctxLast);
   const thisEnd = endOfNight({ nextFajr: tomorrowFajr, nextSunrise: nextRise }, ctxThis);
