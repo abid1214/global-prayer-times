@@ -37,12 +37,17 @@ renderer.setPixelRatio(HI_DPR);
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-// Vector2 reused by lineResolution()/refreshLineResolutions().
+// Vector2 reused by refreshLineResolutions() to avoid one per-call
+// allocation on every DPR flip and window resize.
 const _drawSize = new THREE.Vector2();
 function lineResolution() {
   // Drawing-buffer size = CSS pixels × DPR. LineMaterial expects this
   // (NOT window.innerWidth/Height) — without it, strokes render at
   // wrong pixel widths on high-DPI screens.
+  //
+  // Allocates a fresh Vector2 per call by design: each LineMaterial
+  // owns its own resolution vector that refreshLineResolutions()
+  // mutates via .copy(), so they must not be aliased.
   return renderer.getDrawingBufferSize(new THREE.Vector2());
 }
 function refreshLineResolutions() {
@@ -740,10 +745,20 @@ function updateSunUniforms(date) {
 // updates without allocating. Assumes the geometry was sized by a
 // prior setPositions call with the same vertex count (so the buffer
 // already has the right length).
+//
+// Reaches into three.js LineSegmentsGeometry internals
+// (attributes.instanceStart.data.array). Guarded with a fallback to
+// the public setPositions API so a future three.js layout change
+// degrades gracefully instead of throwing.
 function updateTraceInPlace(geometry, vertices) {
-  const ib = geometry.attributes.instanceStart.data;
-  const arr = ib.array;
   const segments = vertices.length / 3 - 1;
+  const attr = geometry.attributes.instanceStart;
+  const ib = attr && attr.data;
+  if (!ib || !ib.array || ib.array.length < segments * 6) {
+    geometry.setPositions(vertices);
+    return;
+  }
+  const arr = ib.array;
   for (let i = 0; i < segments; i++) {
     const o = i * 6;
     const p = i * 3;
