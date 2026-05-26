@@ -95,7 +95,12 @@ const METHOD_ORDER = [
   POLAR_METHODS.ANGLE_REDUCED,
 ];
 
-const DEFAULT_METHOD = POLAR_METHODS.AQRAB_SAME_LON;
+// Method 2 (nearest city) matches Sistani §2032 verbatim: "Muslims
+// should rely on the timings of the closest city that has night and
+// day in a twenty-four hour period." sistani.org/english/book/46/2032
+// Existing users with a stored polar_method preference retain their
+// choice; only fresh visitors see this default.
+const DEFAULT_METHOD = POLAR_METHODS.AQRAB_NEAREST_CITY;
 const STORAGE_KEY = "polar_method";
 
 const subscribers = new Set();

@@ -153,14 +153,21 @@ let _sunriseFallbackWarned = false;
 
 // Fajr at -16° is physically reachable at (latDeg, date) iff the
 // sun's minimum altitude that day is at or below -16°. Equivalently,
-// |φ + δ| ≤ 90° − 16° = 74° = FAJR_LIMIT_DEG. We cannot trust
-// isValidDate(adhanFajr) alone because adhan's CalculationParameters
-// defaults to highLatitudeRule: middleofthenight, which synthesizes a
+// |φ + δ| ≤ 90° − 16° = 74° = FAJR_LIMIT_DEG.
+//
+// ADHAN'S DEFAULTS WILL LIE TO YOU: adhan's CalculationParameters
+// default highLatitudeRule = middleofthenight, which synthesizes a
 // "Fajr" value (actually a midnight-rule fallback) at latitudes where
-// the angle is never reached. That synthesized value is itself a
-// flavor of midnight, so using it as the anchor for endOfNight()
-// would silently double-apply the rule. Use the physical check
-// instead.
+// the -16° angle is never astronomically reached. So isValidDate(t.
+// fajr) alone is not a usable signal for "did the sun reach -16°
+// today" — it conflates real Fajr with synthesized midnight. Using
+// the synthesized value as the anchor for endOfNight() would
+// silently double-apply the midnight rule.
+//
+// This is the canonical pattern anywhere in this codebase that needs
+// "did the sun actually reach depression θ on date D at latitude φ":
+// check sunMinAltitudeRad(φ, D) ≤ θ directly. Do NOT trust adhan's
+// non-NaN return value.
 const FAJR_REACHABLE_THRESHOLD_RAD = -16 * DEG;
 function reachableFajr(latDeg, date, adhanFajr) {
   if (!isValidDate(adhanFajr)) return null;
