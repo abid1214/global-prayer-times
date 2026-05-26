@@ -387,19 +387,26 @@ function makeEquatorLine() {
 
 function makeSunTrace() {
   // Polyline tracing the sun's position across the ±12h window
-  // centred on the effective time. Positions are placeholders here —
-  // updateSunUniforms re-samples them on every tick.
+  // centred on the effective time. At SUN_DISTANCE the trace is a
+  // circle ~60 units in radius — large parts of it sit behind the
+  // camera at LIVE (camera sits on the sun side), so depthTest is
+  // off and the line is drawn thick + bright so the visible far-side
+  // arc reads clearly against the starfield. Positions are
+  // placeholders here — updateSunUniforms re-samples them on every
+  // tick.
   const geo = new LineGeometry();
   geo.setPositions(new Array((SUN_TRACE_SEGMENTS + 1) * 3).fill(0));
   const mat = new LineMaterial({
     color: 0xffd966,
-    linewidth: 1.6,
+    linewidth: 3.0,
     transparent: true,
-    opacity: 0.7,
+    opacity: 0.95,
+    depthTest: false,
     resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
   });
   const line = new Line2(geo, mat);
   line.frustumCulled = false;
+  line.renderOrder = 1;
   return line;
 }
 
