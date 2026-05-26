@@ -364,12 +364,9 @@ function makeSunLine() {
 
 function makeEquatorLine() {
   // Closed ring at lat=0 on Earth's surface, lifted 1.4% above so it
-  // sits proud of the texture without z-fighting (matches the
-  // projection-arc convention; the qibla arc sits a bit higher at
-  // 1.018). depthTest stays off so the ring is fully visible
-  // (including the back half) — without that, the prayer-band
-  // colouring and the day/night terminator make the line read as
-  // dashed segments wherever it dips behind a darker pixel.
+  // sits proud of the texture without z-fighting. depthTest stays on
+  // so Earth occludes the back half of the ring — otherwise the
+  // globe reads as see-through.
   const N = 256;
   const positions = [];
   for (let i = 0; i <= N; i++) {
@@ -384,56 +381,46 @@ function makeEquatorLine() {
     linewidth: 1.8,
     transparent: true,
     opacity: 0.85,
-    depthTest: false,
     resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
   });
-  const line = new Line2(geo, mat);
-  line.renderOrder = 2;
-  return line;
+  return new Line2(geo, mat);
 }
 
 function makeSunTrace() {
   // Polyline tracing the sun's position across the ±12h window
-  // centred on the effective time. At SUN_DISTANCE the trace is a
-  // circle ~60 units in radius — large parts of it sit behind the
-  // camera at LIVE (camera sits on the sun side), so depthTest is
-  // off and the line is drawn thick + bright so the visible far-side
-  // arc reads clearly against the starfield. Positions are
-  // placeholders here — updateSunUniforms re-samples them on every
-  // tick.
+  // centred on the effective time. Positions are placeholders here
+  // — updateSunUniforms re-samples them on every tick.
   const geo = new LineGeometry();
   geo.setPositions(new Array((SUN_TRACE_SEGMENTS + 1) * 3).fill(0));
   const mat = new LineMaterial({
     color: 0xffd966,
-    linewidth: 3.0,
+    linewidth: 1.6,
     transparent: true,
-    opacity: 0.95,
-    depthTest: false,
+    opacity: 0.7,
     resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
   });
   const line = new Line2(geo, mat);
   line.frustumCulled = false;
-  line.renderOrder = 1;
   return line;
 }
 
 function makeSubsolarTrace() {
   // Same 24h path the sun-trace draws, but at Earth's surface — the
-  // subsolar point's track. Lifted to 1.014 to match the equator and
-  // depthTest off so the back-of-Earth half reads through.
+  // subsolar point's track. Lifted to 1.014 to match the equator.
+  // depthTest on so Earth occludes the back half (no see-through).
+  // Deep orange instead of the far-trace yellow so the line stays
+  // legible against desert tones in the Blue Marble texture.
   const geo = new LineGeometry();
   geo.setPositions(new Array((SUN_TRACE_SEGMENTS + 1) * 3).fill(0));
   const mat = new LineMaterial({
-    color: 0xffd966,
-    linewidth: 2.0,
+    color: 0xff5522,
+    linewidth: 1.8,
     transparent: true,
-    opacity: 0.9,
-    depthTest: false,
+    opacity: 0.95,
     resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
   });
   const line = new Line2(geo, mat);
   line.frustumCulled = false;
-  line.renderOrder = 2;
   return line;
 }
 
