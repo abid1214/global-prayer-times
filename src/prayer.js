@@ -53,22 +53,26 @@ const PRAYER_META = [
 // standard Ja'fari calculation, both depending on the current solar
 // declination δ. See earthMaterial.js for the full derivation; in
 // short:
-//   • Fajr fails (sun never reaches -16°) when |φ + δ| > 74° = 90° - 16°.
-//     Adhan uses -16° geometric (no refraction), so 74° matches exactly.
+//   • Fajr fails (sun never reaches the preset's Fajr depression
+//     angle) when |φ + δ| > 90° − fajrAngle. For Leva Qom (16°)
+//     that's > 74°; for Tehran (17.7°) it's > 72.3°. Adhan uses
+//     the configured angle geometrically (no refraction).
 //   • Polar night (sun never crosses apparent horizon) when |φ - δ| >
 //     90.833° = 90° + 50'. The 50' offset matches Adhan's sunrise/
 //     sunset convention (refraction + solar semi-diameter). Without
 //     it, the cap kicks in ~14 days/year earlier at φ ≈ 68°N than
 //     Adhan actually returns NaN.
 // Project to the closer of the two thresholds per hemisphere. The
-// fragment shader still uses FAJR_LIMIT_DEG = 74 (the Leva Qom default)
-// regardless of preset — see earthMaterial.js's docblock; Stage 3.2
-// will make the shader preset-aware. The computational path here, by
-// contrast, derives the Fajr limit from the active preset's fajrAngle
-// (16° for Leva Qom → 74° limit; 17.7° for Tehran → 72.3° limit), so
-// the panel's "in cap" decision tracks the user's selected angle even
-// while the shader stays at the Leva Qom cap. The two diverge by up
-// to ~1.7° of latitude near the seasonal cap edge under Tehran.
+// fragment shader still hard-codes the cap at 74° (Leva Qom's -16°
+// Fajr, via `const float FAJR_LIMIT = 74.0 * PI / 180.0` in
+// earthMaterial.js) regardless of preset — see earthMaterial.js's
+// docblock; Stage 3.2 will make the shader preset-aware. The
+// computational path here, by contrast, derives the Fajr limit from
+// the active preset's fajrAngle (16° Leva Qom → 74° limit; 17.7°
+// Tehran → 72.3° limit), so the panel's "in cap" decision tracks
+// the user's selected angle even while the shader stays at the Leva
+// Qom cap. The two diverge by up to ~1.7° of latitude near the
+// seasonal cap edge under Tehran.
 const DAY_LIMIT_DEG = 90 + 50 / 60;  // 90.8333…
 
 // Active Fajr angle, in degrees, for the selected preset. PRESET_META
