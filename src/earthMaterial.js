@@ -234,14 +234,19 @@ const FRAG = /* glsl */ `
   }
 `;
 
-export function createEarthMaterial({ dayMap }) {
+// dayBoost defaults to 2.7 — calibrated against the dark photographic
+// Blue Marble texture so its midtones lift to a vivid daylight base.
+// Flat cartographic textures already encode their target luminance,
+// so pass dayBoost = 1.0 (or similar) to avoid saturating the day
+// hemisphere when the shader's prayer-band overlay adds on top.
+export function createEarthMaterial({ dayMap, dayBoost = 2.7 }) {
   return new THREE.ShaderMaterial({
     uniforms: {
       dayMap: { value: dayMap },
       sunDir: { value: new THREE.Vector3(1, 0, 0) },
       decl: { value: 0 },
       prayerOpacity: { value: 0.85 },
-      dayBoost: { value: 2.7 },
+      dayBoost: { value: dayBoost },
       prayerEnabled: { value: 1.0 },
       enFajr: { value: 1.0 },
       enDhuhr: { value: 1.0 },

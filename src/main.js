@@ -12,14 +12,25 @@ import { GlobeControls } from "./globeControls.js";
 import { POLAR_METHODS, getMethod, subscribe as subscribeMethod, subscribePreset } from "./settings.js";
 import { snapToNearestHighLatCity } from "./highLatCities.js";
 
-// Flat cartographic look (Google-Maps-style: cream land + pale blue
-// water). Built procedurally from three-globe's water mask in
+// Flat cartographic look (Google-Maps-style: warm tan land + steel
+// blue water). Built procedurally from three-globe's water mask in
 // buildFlatEarthTexture() so we don't take a dependency on a
 // specific cartographic JPG. The mask is grayscale: 255 = water,
 // 0 = land, with anti-aliased coastlines.
+//
+// Source colors are the TARGET display colors minus the shader's
+// fixed 0.14 lift (= 36/255). The earth material is constructed
+// with dayBoost = 1.0 so the on-screen base color is exactly the
+// target. We pick mid-luminance targets (not blinding white cream)
+// so the prayer-band overlay's *0.92 mix + *0.40 additive don't
+// clamp the day hemisphere to (1,1,1).
 const WATER_MASK_URL = "https://unpkg.com/three-globe/example/img/earth-water.png";
-const LAND_COLOR = [0xe8, 0xe0, 0xc8];   // warm cream
-const WATER_COLOR = [0xb8, 0xd4, 0xe8];  // pale blue
+const EARTH_DAY_BOOST = 1.0;
+const EARTH_LIFT_BYTE = 36;  // matches the +0.14 (~ 36/255) lift in earthMaterial's FRAG.
+//   target #c4ad7a (warm tan) - 0x24 = source for the canvas.
+//   target #6c91b5 (steel blue) - 0x24 = source for the canvas.
+const LAND_COLOR = [0xc4 - EARTH_LIFT_BYTE, 0xad - EARTH_LIFT_BYTE, 0x7a - EARTH_LIFT_BYTE];
+const WATER_COLOR = [0x6c - EARTH_LIFT_BYTE, 0x91 - EARTH_LIFT_BYTE, 0xb5 - EARTH_LIFT_BYTE];
 
 const MECCA_LAT = 21.4225;
 const MECCA_LON = 39.8262;
@@ -231,7 +242,7 @@ const _traceDate = new Date();
 
 (async function init() {
   const dayTex = await buildFlatEarthTexture();
-  earthMaterial = createEarthMaterial({ dayMap: dayTex });
+  earthMaterial = createEarthMaterial({ dayMap: dayTex, dayBoost: EARTH_DAY_BOOST });
   earthMesh = new THREE.Mesh(earthGeo, earthMaterial);
   earthGroup.add(earthMesh);
 
