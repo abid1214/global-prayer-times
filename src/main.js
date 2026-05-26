@@ -43,12 +43,15 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 
-// Default camera placement: sit in the sun's orbital plane (the
-// equatorial plane, y=0 in our frame — y is the polar axis), at the
-// same longitude as the current sun direction, looking back at Earth.
-// Dropping the y component before normalising removes the declination
-// tilt so the camera doesn't rock north/south with the seasons; the
-// sun then sweeps left-right across the screen as the scrubber moves.
+// Default camera placement: sit on the current sun-Earth line, looking
+// back at Earth. The sun's daily rotational plane is at constant
+// declination (a circle parallel to the equator, offset by sin δ along
+// the polar axis), NOT the equatorial plane — at solstice δ ≈ ±23.5°,
+// so dropping the polar-axis component would lift the camera ~23°
+// out of the sun's plane and send the sun above/below the Earth on a
+// +12h scrub. Aligning camera with sunDir directly puts both camera
+// and sun on the same diurnal circle, so a +12h scrub places the sun
+// directly behind Earth.
 //
 // If a ?lat=&lon= link was shared, point at that location instead.
 const INITIAL_DISTANCE = 5.5;
@@ -59,8 +62,7 @@ const _initialView = parseUrlLocation();
     dir = latLonToVec3(_initialView.latRad, _initialView.lonRad);
   } else {
     const { sunDir } = sunPosition(new Date());
-    const len = Math.hypot(sunDir[0], sunDir[2]);
-    dir = [sunDir[0] / len, 0, sunDir[2] / len];
+    dir = sunDir;
   }
   camera.position.set(dir[0] * INITIAL_DISTANCE, dir[1] * INITIAL_DISTANCE, dir[2] * INITIAL_DISTANCE);
   camera.lookAt(0, 0, 0);
@@ -150,6 +152,7 @@ let qiblaLine = null;
 let projectionPin = null;
 let projectionLine = null;
 let sunGroup = null;
+let sunLine = null;
 const SUN_DISTANCE = 60;
 
 (async function init() {
@@ -205,6 +208,11 @@ const SUN_DISTANCE = 60;
   // earth group; position is updated each tick from sunDir.
   sunGroup = makeSun();
   scene.add(sunGroup);
+
+  // Faint sun-to-Earth axis line. Endpoints are rewritten every tick
+  // alongside sunGroup.position so the line tracks the scrubbed sun.
+  sunLine = makeSunLine();
+  scene.add(sunLine);
 
   initToggles();
   initScrubber();
@@ -288,6 +296,23 @@ function makeSun() {
   );
   group.add(corona);
   return group;
+}
+
+function makeSunLine() {
+  // Two-point line, Earth-center → sun-center. Endpoints are written
+  // every tick in updateSunUniforms; the buffer is sized for two
+  // positions but contents are placeholder until the first update.
+  // depthTest stays on so Earth properly occludes the segment that
+  // passes behind it — that occlusion is the whole point of drawing
+  // the axis (you see the near half, Earth hides the far half).
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
+  const mat = new THREE.LineBasicMaterial({
+    color: 0xfff5cc,
+    transparent: true,
+    opacity: 0.22,
+  });
+  return new THREE.Line(geo, mat);
 }
 
 function makeProjectionPin() {
@@ -523,6 +548,14 @@ function updateSunUniforms(date) {
       sunDir[1] * SUN_DISTANCE,
       sunDir[2] * SUN_DISTANCE
     );
+  }
+  if (sunLine) {
+    const arr = sunLine.geometry.attributes.position.array;
+    arr[0] = 0; arr[1] = 0; arr[2] = 0;
+    arr[3] = sunDir[0] * SUN_DISTANCE;
+    arr[4] = sunDir[1] * SUN_DISTANCE;
+    arr[5] = sunDir[2] * SUN_DISTANCE;
+    sunLine.geometry.attributes.position.needsUpdate = true;
   }
 }
 
