@@ -2,6 +2,90 @@
 // localStorage and notifies subscribers on change so the side panel and
 // the projection viz stay in lockstep.
 
+// ---- Marja' / calculation-method preset ----
+
+export const PRESETS = Object.freeze({
+  JAFARI: "jafari",
+  TEHRAN: "tehran",
+});
+
+export const PRESET_ORDER = [PRESETS.JAFARI, PRESETS.TEHRAN];
+
+// Preset metadata. The actual adhan parameters are constructed by
+// paramsForPreset() in src/prayer.js — built via CalculationMethod
+// .Tehran() for the Tehran preset and via CalculationMethod.Other()
+// with explicit 16°/4°/14° for the Leva Qom preset (adhan 4.4.3 does
+// not expose a Jafari() factory; see METHODS.md).
+//
+// IMPORTANT: angles here are NOT purely advisory. They are also read
+// by activeFajrAngleDeg() in src/prayer.js to derive the preset-aware
+// Fajr-cap threshold for aqrabProjection(). reachableFajr() takes the
+// Fajr angle from its callers (params.fajrAngle from paramsForPreset's
+// CalculationParameters object), so it does NOT consult PRESET_META
+// directly — but if you change a preset's fajrAngle here without
+// updating paramsForPreset(), the cap edge (which reads PRESET_META)
+// and the reachability check (which reads adhan's params) will
+// disagree. Keep the angles here in lockstep with the params returned
+// by paramsForPreset() or the panel's "in cap" decision will diverge
+// from the actual computed schedule.
+export const PRESET_META = Object.freeze({
+  [PRESETS.JAFARI]: Object.freeze({
+    id: PRESETS.JAFARI,
+    name: "Shia Ithna-Ashari, Leva Institute, Qum",
+    shortName: "Leva Qom",
+    angles: Object.freeze({ fajr: 16, maghrib: 4, isha: 14 }),
+    note: "Sistani-aligned. Used by most English-language Shia calendars.",
+  }),
+  [PRESETS.TEHRAN]: Object.freeze({
+    id: PRESETS.TEHRAN,
+    name: "Institute of Geophysics, University of Tehran",
+    shortName: "Tehran",
+    angles: Object.freeze({ fajr: 17.7, maghrib: 4.5, isha: 14 }),
+    note: "Khamenei-aligned. Official Iranian government calendar default.",
+  }),
+});
+
+const PRESET_STORAGE_KEY = "gpt.preset";
+const DEFAULT_PRESET = PRESETS.JAFARI;  // preserve existing behavior for current users
+
+const presetSubscribers = new Set();
+let presetCached = null;
+
+function loadPreset() {
+  // URL ?preset= takes precedence at load only — read once, never
+  // written back. Matches the ?m= pattern used by polar-method so a
+  // "share this view with preset X" link works without polluting the
+  // recipient's persisted preference.
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("preset");
+    if (fromUrl && PRESET_ORDER.includes(fromUrl)) return fromUrl;
+  } catch (_) {}
+  try {
+    const stored = localStorage.getItem(PRESET_STORAGE_KEY);
+    if (stored && PRESET_ORDER.includes(stored)) return stored;
+  } catch (_) {}
+  return DEFAULT_PRESET;
+}
+
+export function getPreset() {
+  if (presetCached === null) presetCached = loadPreset();
+  return presetCached;
+}
+
+export function setPreset(preset) {
+  if (!PRESET_ORDER.includes(preset) || preset === presetCached) return;
+  presetCached = preset;
+  try { localStorage.setItem(PRESET_STORAGE_KEY, preset); } catch (_) {}
+  for (const fn of presetSubscribers) fn(preset);
+}
+
+export function subscribePreset(fn) {
+  presetSubscribers.add(fn);
+  return () => presetSubscribers.delete(fn);
+}
+
+// ---- High-latitude polar method ----
+
 export const POLAR_METHODS = Object.freeze({
   AQRAB_SAME_LON:     "aqrab_same_lon",
   AQRAB_NEAREST_CITY: "aqrab_nearest_city",
@@ -25,7 +109,12 @@ const METHOD_ORDER = [
   POLAR_METHODS.ANGLE_REDUCED,
 ];
 
-const DEFAULT_METHOD = POLAR_METHODS.AQRAB_SAME_LON;
+// Method 2 (nearest city) matches Sistani §2032 verbatim: "Muslims
+// should rely on the timings of the closest city that has night and
+// day in a twenty-four hour period." sistani.org/english/book/46/2032
+// Existing users with a stored polar_method preference retain their
+// choice; only fresh visitors see this default.
+const DEFAULT_METHOD = POLAR_METHODS.AQRAB_NEAREST_CITY;
 const STORAGE_KEY = "polar_method";
 
 const subscribers = new Set();

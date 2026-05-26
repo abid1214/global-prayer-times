@@ -1,17 +1,41 @@
 import * as adhan from "adhan";
 import { classifyPrayer, sunPosition } from "./solar.js";
-import { POLAR_METHODS, getMethod } from "./settings.js";
+import { POLAR_METHODS, getMethod, PRESETS, getPreset, PRESET_META } from "./settings.js";
 import { snapToNearestHighLatCity, distanceToNearestCityKm } from "./highLatCities.js";
 
 const DEG = Math.PI / 180;
 
-// Shia Ja'fari (Leva Institute Qum) parameters: Fajr 16°, Isha 14°, Maghrib 4°.
-// Asr uses shadow factor 1 (Madhab.Shafi in adhan-js).
-function jafariParams() {
-  const params = adhan.CalculationMethod.Other();
-  params.fajrAngle = 16;
-  params.ishaAngle = 14;
-  params.maghribAngle = 4;
+// Preset-aware adhan params factory.
+//   jafari (Leva Institute, Qum)        : Fajr 16°,   Maghrib 4°,   Isha 14°
+//   tehran (Inst. of Geophysics, Tehran): Fajr 17.7°, Maghrib 4.5°, Isha 14°
+//
+// adhan 4.4.3 ships Tehran() as a built-in but does NOT ship a Jafari()
+// factory (see METHODS.md — only 13 methods, none called Jafari). The
+// Leva Qom angles are therefore built manually via Other(), which is
+// what the previous jafariParams() did.
+//
+// Asr shadow factor T = 1 (Ja'farī/Shāfi'ī consensus, NOT Hanafi T = 2)
+// is enforced by setting madhab = Shafi for both presets. (Tehran()
+// already defaults to madhab=Shafi but we set it explicitly so the
+// intent is local to this function and survives any future adhan
+// default change.)
+//
+// Note: adhan 4.4.3 has no `midnightMethod` field — shar'ī midnight is
+// computed independently by classifyPrayer/classifyByClock per the
+// Ja'farī rule (½(Maghrib + nextFajr)), so switching presets does not
+// risk a midnight-semantics flip downstream.
+function paramsForPreset(presetId) {
+  const p = presetId ?? getPreset();
+  let params;
+  if (p === PRESETS.TEHRAN) {
+    params = adhan.CalculationMethod.Tehran();
+  } else {
+    // Leva Qom — build from Other() with the canonical Ja'farī angles.
+    params = adhan.CalculationMethod.Other();
+    params.fajrAngle = 16;
+    params.ishaAngle = 14;
+    params.maghribAngle = 4;
+  }
   params.madhab = adhan.Madhab.Shafi;
   return params;
 }
@@ -29,19 +53,34 @@ const PRAYER_META = [
 // standard Ja'fari calculation, both depending on the current solar
 // declination δ. See earthMaterial.js for the full derivation; in
 // short:
-//   • Fajr fails (sun never reaches -16°) when |φ + δ| > 74° = 90° - 16°.
-//     Adhan uses -16° geometric (no refraction), so 74° matches exactly.
+//   • Fajr fails (sun never reaches the preset's Fajr depression
+//     angle) when |φ + δ| > 90° − fajrAngle. For Leva Qom (16°)
+//     that's > 74°; for Tehran (17.7°) it's > 72.3°. Adhan uses
+//     the configured angle geometrically (no refraction).
 //   • Polar night (sun never crosses apparent horizon) when |φ - δ| >
 //     90.833° = 90° + 50'. The 50' offset matches Adhan's sunrise/
 //     sunset convention (refraction + solar semi-diameter). Without
 //     it, the cap kicks in ~14 days/year earlier at φ ≈ 68°N than
 //     Adhan actually returns NaN.
-// Project to the closer of the two thresholds per hemisphere. Same
-// threshold math is mirrored in the fragment shader, where every cap
-// pixel is rendered with its projection point's schedule via an
-// effective-latitude clamp.
-const FAJR_LIMIT_DEG = 74;
+// Project to the closer of the two thresholds per hemisphere. The
+// fragment shader still hard-codes the cap at 74° (Leva Qom's -16°
+// Fajr, via `const float FAJR_LIMIT = 74.0 * PI / 180.0` in
+// earthMaterial.js) regardless of preset — see earthMaterial.js's
+// docblock; Stage 3.2 will make the shader preset-aware. The
+// computational path here, by contrast, derives the Fajr limit from
+// the active preset's fajrAngle (16° Leva Qom → 74° limit; 17.7°
+// Tehran → 72.3° limit), so the panel's "in cap" decision tracks
+// the user's selected angle even while the shader stays at the Leva
+// Qom cap. The two diverge by up to ~1.7° of latitude near the
+// seasonal cap edge under Tehran.
 const DAY_LIMIT_DEG = 90 + 50 / 60;  // 90.8333…
+
+// Active Fajr angle, in degrees, for the selected preset. PRESET_META
+// is a frozen lookup table in settings.js; falling back to 16° on a
+// non-preset code path keeps existing behavior intact.
+function activeFajrAngleDeg() {
+  return PRESET_META[getPreset()]?.angles?.fajr ?? 16;
+}
 // Adhan's correctedHourAngle computes
 //   H = acos((sin(α) - sin(φ)·sin(δ)) / (cos(φ)·cos(δ)))
 // which approaches acos(±1) at the cap edge and goes NaN under
@@ -56,16 +95,25 @@ const DAY_LIMIT_DEG = 90 + 50 / 60;  // 90.8333…
 // the apparent-horizon correction consumed it.
 const SAFE_MARGIN_DEG = 0.05;
 
-export function aqrabProjection(latDeg, date = new Date()) {
+export function aqrabProjection(latDeg, date = new Date(), opts = {}) {
   const { declination } = sunPosition(date);
   const declDeg = (declination * 180) / Math.PI;
+  // Preset-aware Fajr limit. Tehran (17.7°) → 72.3°; Leva Qom (16°)
+  // → 74°. Callers that want to force a specific limit can pass
+  // opts.fajrAngleDeg; otherwise the active preset is used. main.js's
+  // pinSourceForMethod calls without opts so the pin tracks the
+  // user's currently-selected preset.
+  const fajrAngleDeg = Number.isFinite(opts.fajrAngleDeg)
+    ? opts.fajrAngleDeg
+    : activeFajrAngleDeg();
+  const fajrLimitDeg = 90 - fajrAngleDeg;
   // Cap membership uses the TRUE threshold — a user at the boundary
   // latitude has computable times and should not be forced into the
   // projection. SAFE_MARGIN_DEG applies only to the projection target
   // so Adhan's correctedHourAngle has numerical headroom from the
   // cosH = ±1 singularity when we DO project.
-  const northTrue = Math.min(FAJR_LIMIT_DEG - declDeg, DAY_LIMIT_DEG + declDeg);
-  const southTrue = Math.max(-FAJR_LIMIT_DEG - declDeg, -DAY_LIMIT_DEG + declDeg);
+  const northTrue = Math.min(fajrLimitDeg - declDeg, DAY_LIMIT_DEG + declDeg);
+  const southTrue = Math.max(-fajrLimitDeg - declDeg, -DAY_LIMIT_DEG + declDeg);
   if (latDeg > northTrue) return { projectedFromLat: northTrue - SAFE_MARGIN_DEG };
   if (latDeg < southTrue) return { projectedFromLat: southTrue + SAFE_MARGIN_DEG };
   return null;
@@ -97,7 +145,7 @@ function isValidDate(t) {
   return t instanceof Date && Number.isFinite(t.getTime());
 }
 
-function computeAdhanAt(latDeg, lonDeg, date, params = jafariParams()) {
+function computeAdhanAt(latDeg, lonDeg, date, params = paramsForPreset()) {
   const coords = new adhan.Coordinates(latDeg, lonDeg);
   return new adhan.PrayerTimes(coords, date, params);
 }
@@ -119,6 +167,90 @@ function sunMinAltitudeRad(latDeg, date) {
 // with NaN.
 function anchorMaghrib(times) {
   return isValidDate(times.maghrib) ? times.maghrib : times.sunset;
+}
+
+// One console.warn per browser session when endOfNight() falls back
+// from Fajr to sunrise. Diagnostic canary for catching the fallback
+// firing more often than expected near the 74° Fajr-cap; can be
+// removed before Stage 3 if noisy.
+let _sunriseFallbackWarned = false;
+
+// Fajr at the preset's depression angle (16° Leva Qom / 17.7° Tehran)
+// is physically reachable at (latDeg, date) iff the sun's minimum
+// altitude that day is at or below that angle (i.e., |φ + δ| ≤ 90° −
+// fajrAngleDeg).
+//
+// ADHAN'S DEFAULTS WILL LIE TO YOU: adhan's CalculationParameters
+// default highLatitudeRule = middleofthenight, which synthesizes a
+// "Fajr" value (actually a midnight-rule fallback) at latitudes where
+// the fajr angle is never astronomically reached. So isValidDate(t.
+// fajr) alone is not a usable signal for "did the sun reach this
+// depression today" — it conflates real Fajr with synthesized
+// midnight. Using the synthesized value as the anchor for endOfNight()
+// would silently double-apply the midnight rule.
+//
+// This is the canonical pattern anywhere in this codebase that needs
+// "did the sun actually reach depression θ on date D at latitude φ":
+// check sunMinAltitudeRad(φ, D) ≤ θ directly. Do NOT trust adhan's
+// non-NaN return value.
+//
+// fajrAngleDeg must be passed by callers (paramsForPreset's
+// CalculationParameters object exposes .fajrAngle). Defaulting here
+// would couple this helper to the global preset state; callers
+// already have params in hand.
+function reachableFajr(latDeg, date, adhanFajr, fajrAngleDeg) {
+  if (!isValidDate(adhanFajr)) return null;
+  const thresholdRad = -fajrAngleDeg * DEG;
+  if (sunMinAltitudeRad(latDeg, date) > thresholdRad) return null;
+  return adhanFajr;
+}
+
+// Resolve the end of the Shia night for split-night methods (4, 5, 6).
+// Canonical Ja'farī: end of night = next Fajr (the midpoint of
+// Maghrib → next Fajr is shar'ī midnight; per Sistani's Dialogue on
+// Prayer and leader.ir/en/content/24743). Fallback: next sunrise,
+// used only when nextFajr is unresolvable — typically when the user
+// is inside the Fajr cap (|φ+δ| > 74°). Callers should pre-filter
+// the Fajr anchor via reachableFajr() so adhan's middleofthenight
+// synthesis is not silently treated as a real Fajr.
+//
+// Returns { time, source } where source ∈ {'fajr', 'sunrise-fallback'}.
+// time may itself be NaN in the deepest-polar regime (neither anchor
+// available) — callers test isValidDate(time) and emit NaN times.
+//
+// `context` carries lat/lon/date/method for the session-deduped warn.
+function endOfNight({ nextFajr, nextSunrise }, context) {
+  if (isValidDate(nextFajr)) {
+    return { time: nextFajr, source: "fajr" };
+  }
+  // Skip the warn if sunrise is also missing — there's no "fallback"
+  // happening in any meaningful sense, just a NaN propagating
+  // downstream. The source label stays 'sunrise-fallback' to make the
+  // algorithmic intent clear.
+  if (isValidDate(nextSunrise) && !_sunriseFallbackWarned) {
+    _sunriseFallbackWarned = true;
+    const c = context || {};
+    const dateStr = (c.date instanceof Date && !isNaN(c.date))
+      ? c.date.toISOString().slice(0, 10) : "n/a";
+    const latStr = Number.isFinite(c.latDeg) ? c.latDeg.toFixed(2) : "n/a";
+    const lonStr = Number.isFinite(c.lonDeg) ? c.lonDeg.toFixed(2) : "n/a";
+    console.warn(
+      `[prayer] endOfNight: Fajr unresolvable, using sunrise fallback ` +
+      `(lat=${latStr}, lon=${lonStr}, date=${dateStr}, method=${c.method ?? "?"})`
+    );
+  }
+  return { time: nextSunrise, source: "sunrise-fallback" };
+}
+
+// Merge two endOfNight source values into a single diagnostic for the
+// polarMethod field. midnightTimes/seventhTimes resolve two endpoints
+// (last night and this night); we want a single source label for the
+// panel's note. If either fell back to sunrise, the surface label is
+// 'sunrise-fallback' — that's the more conservative reading.
+function combineSources(...sources) {
+  return sources.some((s) => s === "sunrise-fallback")
+    ? "sunrise-fallback"
+    : "fajr";
 }
 
 // ---------- clock-based "Now in" classifier ----------
@@ -290,7 +422,7 @@ function walkBackForValidDay(latDeg, lonDeg, date) {
   // Dates that are internally out of order at marginal polar dates,
   // and accepting those as success silently corrupts the panel's
   // "Now in" indicator.
-  const params = jafariParams();
+  const params = paramsForPreset();
   for (let i = 1; i <= AWQAT_MAX_BACK_DAYS; i++) {
     const trial = addDays(date, -i);
     const t = computeAdhanAt(latDeg, lonDeg, trial, params);
@@ -313,7 +445,15 @@ function walkBackForValidDay(latDeg, lonDeg, date) {
 }
 
 function findRecentValidDate(latDeg, lonDeg, date) {
-  const key = `${latDeg.toFixed(1)}:${lonDeg.toFixed(1)}:${dayKey(date)}`;
+  // Preset is part of the cache key because walkBackForValidDay's
+  // schedule depends on the Fajr/Maghrib/Isha angles (16°/4°/14° vs
+  // 17.7°/4.5°/14°): a date that yields a chronologically-valid
+  // schedule under Leva Qom can fail under Tehran (or vice versa)
+  // because the deeper Fajr angle takes longer to clear inside the
+  // Fajr cap. Keying only on lat/lon/day would return stale results
+  // after a preset switch and silently ignore the user's choice in
+  // high-latitude aqrab_al_awqat mode.
+  const key = `${getPreset()}:${latDeg.toFixed(1)}:${lonDeg.toFixed(1)}:${dayKey(date)}`;
   if (_awqatCache.has(key)) {
     // Refresh insertion order for LRU semantics.
     const v = _awqatCache.get(key);
@@ -352,21 +492,29 @@ function warnIfRemoteProjection(latDeg, lonDeg) {
 
 // ---------- method 4: niṣf al-layl (middle of night) ----------
 //
-// We anchor "night start" at Maghrib's -4° boundary (or sunset if -4°
-// doesn't occur) and "night end" at the next-day sunrise — there's no
-// Fajr to anchor to at high lat by construction, which is why this
-// method exists. Matches adhan.js's HighLatitudeRule.MiddleOfTheNight
-// convention; differs from the canonical Ja'fari shar'ī midnight
-// (Maghrib → next Fajr) by Fajr's duration. See the README's
-// high-latitude methods section for the divergence discussion.
+// We anchor "night start" at Maghrib's depression angle (or sunset
+// if Maghrib doesn't occur) and "night end" at the canonical Ja'farī
+// endpoint: the next Fajr at the preset's depression angle (-16°
+// Leva Qom, -17.7° Tehran). reachableFajr() takes the preset's
+// fajrAngle from params and checks physical attainability against
+// it. This matches the shar'ī midnight definition used throughout
+// this codebase (½(Maghrib + nextFajr)) — Sistani's Dialogue on
+// Prayer; leader.ir /en/content/24743.
+//
+// When Fajr is unresolvable at the user's location/date (deep inside
+// the Fajr cap), endOfNight() falls back to the next sunrise — this
+// is the int'l-convention HighLatitudeRule.MiddleOfTheNight behavior
+// and preserves predictability where Fajr doesn't enter at all. The
+// polarMethod's endOfNightSource field surfaces the fallback to the
+// panel so the user can see when the sunrise anchor is in play.
 //
 // Today's Fajr is the midpoint of the PRECEDING night (yesterday's
-// Maghrib → today's sunrise) — so it lands in the early hours and
-// stays in chronological order with sunrise/dhuhr/asr that follow.
-// Today's Isha is the midpoint of the UPCOMING night (today's
-// Maghrib → tomorrow's sunrise) — late evening, after maghrib.
-// Mirrors seventhTimes's split-night layout; without this, both
-// fajr and isha would land in the same UPCOMING-night midpoint
+// Maghrib → today's end-of-night) — so it lands in the early hours
+// and stays in chronological order with sunrise/dhuhr/asr that
+// follow. Today's Isha is the midpoint of the UPCOMING night
+// (today's Maghrib → tomorrow's end-of-night) — late evening, after
+// maghrib. Mirrors seventhTimes's split-night layout; without this,
+// both fajr and isha would land in the same UPCOMING-night midpoint
 // and classifyByClock's forward walk (fajr → sunrise → … → isha)
 // would mislabel the entire day.
 function midnightTimes(latDeg, lonDeg, date, params) {
@@ -377,6 +525,40 @@ function midnightTimes(latDeg, lonDeg, date, params) {
   const tMaghrib  = anchorMaghrib(today);
   const tSunrise  = today.sunrise;
   const nextRise  = tomorrow.sunrise;
+
+  // Last night ends at today's Fajr (canonical); this night ends at
+  // tomorrow's Fajr. endOfNight() falls back to sunrise when Fajr is
+  // unresolvable and warns once per session. reachableFajr() filters
+  // out adhan's middleofthenight synthesis so we anchor only on
+  // physically attainable Fajr times — otherwise the midnight rule
+  // would silently nest inside itself when the user is past the cap.
+  //
+  // Two separate contexts: each endOfNight() call is about a
+  // different Fajr-date (today's for last-night's end, tomorrow's
+  // for this-night's end). The diagnostic warn includes the date,
+  // so passing a single shared ctx would misreport which day's
+  // Fajr was unresolvable when the warn fires on the tomorrow anchor.
+  //
+  // Normalize "today" the same way addDays() normalizes "tomorrow"
+  // (UTC noon) before calling reachableFajr() — sunMinAltitudeRad
+  // is instant-dependent through the declination, and the scrubber
+  // passes arbitrary times-of-day to getTimesForLocation. Without
+  // this, the reachability decision for today could flip across UTC
+  // day boundaries while tomorrow's stays put.
+  // params.fajrAngle drives reachableFajr(), so Tehran (17.7°) and
+  // Leva Qom (16°) each check against their own depression. Without
+  // this Tehran would still use a 16° reachability threshold and
+  // could treat a synthesized middle-of-night Fajr as "reachable"
+  // in the 72.3°-74° band.
+  const fajrAngleDeg = params.fajrAngle ?? 16;
+  const todayDate    = addDays(date, 0);
+  const tomorrowDate = addDays(date, 1);
+  const todayFajr    = reachableFajr(latDeg, todayDate,    today.fajr,    fajrAngleDeg);
+  const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr, fajrAngleDeg);
+  const ctxLast = { latDeg, lonDeg, date: todayDate,    method: 4 };
+  const ctxThis = { latDeg, lonDeg, date: tomorrowDate, method: 4 };
+  const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctxLast);
+  const thisEnd = endOfNight({ nextFajr: tomorrowFajr, nextSunrise: nextRise }, ctxThis);
 
   // FALLBACK INVARIANT: any path that synthesizes prayer times must
   // return strictly-chronological values (fajr < sunrise < dhuhr <
@@ -389,14 +571,14 @@ function midnightTimes(latDeg, lonDeg, date, params) {
   // (method, fixture) cell.
   //
   // When the night anchors are missing (deep polar night/day where
-  // neither Maghrib nor sunrise occur), return NaN rather than
+  // neither Maghrib nor Fajr/sunrise occur), return NaN rather than
   // falling back to today.fajr/today.isha — those values come from
   // adhan's default and don't share semantics with this method.
-  const fajr = (isValidDate(yMaghrib) && isValidDate(tSunrise))
-    ? new Date((yMaghrib.getTime() + tSunrise.getTime()) / 2)
+  const fajr = (isValidDate(yMaghrib) && isValidDate(lastEnd.time))
+    ? new Date((yMaghrib.getTime() + lastEnd.time.getTime()) / 2)
     : new Date(NaN);
-  const isha = (isValidDate(tMaghrib) && isValidDate(nextRise))
-    ? new Date((tMaghrib.getTime() + nextRise.getTime()) / 2)
+  const isha = (isValidDate(tMaghrib) && isValidDate(thisEnd.time))
+    ? new Date((tMaghrib.getTime() + thisEnd.time.getTime()) / 2)
     : new Date(NaN);
 
   return buildResult({
@@ -410,7 +592,10 @@ function midnightTimes(latDeg, lonDeg, date, params) {
       isha,
       raw: today,
     },
-    polarMethod: { kind: "midnight" },
+    polarMethod: {
+      kind: "midnight",
+      endOfNightSource: combineSources(lastEnd.source, thisEnd.source),
+    },
     classifyMode: "clock",
   });
 }
@@ -418,10 +603,17 @@ function midnightTimes(latDeg, lonDeg, date, params) {
 // ---------- method 5: sub'iyya (one-seventh) ----------
 //
 // Spec: Isha at 1/7 of the night past Maghrib; Fajr at 1/7 before
-// sunrise. "The night" for today's Fajr is last night (yesterday's
-// Maghrib → today's sunrise); for today's Isha it's tonight (today's
-// Maghrib → tomorrow's sunrise). Symmetric with the standard
-// HighLatitudeRule.SeventhOfTheNight in adhan.js.
+// end-of-night. "The night" for today's Fajr is last night
+// (yesterday's Maghrib → today's end-of-night); for today's Isha it
+// is tonight (today's Maghrib → tomorrow's end-of-night).
+//
+// "End of night" follows the canonical Ja'farī rule (next Fajr at
+// the preset's depression angle — -16° Leva Qom, -17.7° Tehran;
+// reachableFajr takes the angle from params), with sunrise fallback
+// only when Fajr is unresolvable — same endOfNight() helper as
+// midnightTimes. The adhan.js HighLatitudeRule.SeventhOfTheNight
+// reference uses sunrise; we diverge to Fajr to match the Ja'farī
+// shar'ī-midnight definition used elsewhere in this app.
 function seventhTimes(latDeg, lonDeg, date, params) {
   const yesterday = computeAdhanAt(latDeg, lonDeg, addDays(date, -1), params);
   const today     = computeAdhanAt(latDeg, lonDeg, date, params);
@@ -432,18 +624,34 @@ function seventhTimes(latDeg, lonDeg, date, params) {
   const tSunrise = today.sunrise;
   const nextRise = tomorrow.sunrise;
 
+  // Separate contexts so the diagnostic warn reports the correct
+  // Fajr-date per endOfNight call AND normalize today's date to UTC
+  // noon to match tomorrow's normalization (see midnightTimes for the
+  // same rationale).
+  // Preset-aware reachability check (see midnightTimes for the
+  // rationale).
+  const fajrAngleDeg = params.fajrAngle ?? 16;
+  const todayDate    = addDays(date, 0);
+  const tomorrowDate = addDays(date, 1);
+  const todayFajr    = reachableFajr(latDeg, todayDate,    today.fajr,    fajrAngleDeg);
+  const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr, fajrAngleDeg);
+  const ctxLast = { latDeg, lonDeg, date: todayDate,    method: 5 };
+  const ctxThis = { latDeg, lonDeg, date: tomorrowDate, method: 5 };
+  const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctxLast);
+  const thisEnd = endOfNight({ nextFajr: tomorrowFajr, nextSunrise: nextRise }, ctxThis);
+
   // FALLBACK INVARIANT (see midnightTimes; enforced by
   // assertChronological in tests/classifierAgreement.test.js).
   // Missing anchors → NaN, never adhan's internal MiddleOfTheNight
   // default. Avoids out-of-order times at deep polar latitudes.
   let fajr = new Date(NaN);
   let isha = new Date(NaN);
-  if (isValidDate(yMaghrib) && isValidDate(tSunrise)) {
-    const lastNightLen = tSunrise.getTime() - yMaghrib.getTime();
-    fajr = new Date(tSunrise.getTime() - lastNightLen / 7);
+  if (isValidDate(yMaghrib) && isValidDate(lastEnd.time)) {
+    const lastNightLen = lastEnd.time.getTime() - yMaghrib.getTime();
+    fajr = new Date(lastEnd.time.getTime() - lastNightLen / 7);
   }
-  if (isValidDate(tMaghrib) && isValidDate(nextRise)) {
-    const thisNightLen = nextRise.getTime() - tMaghrib.getTime();
+  if (isValidDate(tMaghrib) && isValidDate(thisEnd.time)) {
+    const thisNightLen = thisEnd.time.getTime() - tMaghrib.getTime();
     isha = new Date(tMaghrib.getTime() + thisNightLen / 7);
   }
 
@@ -458,7 +666,10 @@ function seventhTimes(latDeg, lonDeg, date, params) {
       isha,
       raw: today,
     },
-    polarMethod: { kind: "seventh" },
+    polarMethod: {
+      kind: "seventh",
+      endOfNightSource: combineSources(lastEnd.source, thisEnd.source),
+    },
     classifyMode: "clock",
   });
 }
@@ -488,10 +699,17 @@ function angleReducedTimes(latDeg, lonDeg, date, params) {
     // midnightTimes directly, which catches both sites.
     return midnightTimes(latDeg, lonDeg, date, params);
   }
-  const fajrAngleDeg = Math.min(16, Math.max(0, -sunMinDeg));
-  const ishaAngleDeg = Math.min(14, Math.max(0, -sunMinDeg));
+  // Cap the reduction at the preset's configured angles (16°/14° Leva
+  // Qom, 17.7°/14° Tehran), not hard-coded constants. Otherwise Tehran
+  // would silently degrade its Fajr threshold to 16° whenever
+  // conditions allow deeper twilight — producing a schedule that
+  // doesn't match the user's selected preset.
+  const presetFajrMax = params.fajrAngle ?? 16;
+  const presetIshaMax = params.ishaAngle ?? 14;
+  const fajrAngleDeg = Math.min(presetFajrMax, Math.max(0, -sunMinDeg));
+  const ishaAngleDeg = Math.min(presetIshaMax, Math.max(0, -sunMinDeg));
 
-  // Derive from the passed params (not a fresh jafariParams()) so any
+  // Derive from the passed params (not a fresh paramsForPreset()) so any
   // upstream customization — e.g., a future caller tweaking madhab or
   // adjustments — survives the reduction. Sibling helpers
   // (midnightTimes, seventhTimes) already use `params` directly;
@@ -543,7 +761,7 @@ function angleReducedTimes(latDeg, lonDeg, date, params) {
 
 export function getTimesForLocation(latDeg, lonDeg, date = new Date()) {
   const method = getMethod();
-  const params = jafariParams();
+  const params = paramsForPreset();
   const projection = aqrabProjection(latDeg, date);
 
   // Outside the cap every method collapses to the standard computation.

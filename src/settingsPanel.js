@@ -3,7 +3,7 @@
 // and fans out to subscribers); src/panel.js and src/main.js subscribe
 // for live re-render of the side panel and the projection pin/arc.
 
-import { POLAR_METHODS, getMethod, setMethod } from "./settings.js";
+import { POLAR_METHODS, getMethod, setMethod, PRESET_ORDER, getPreset, setPreset } from "./settings.js";
 
 const overlay = document.getElementById("settingsOverlay");
 const panel   = document.getElementById("settingsPanel");
@@ -12,6 +12,7 @@ const closeBtn = document.getElementById("settingsClose");
 const backdrop = document.getElementById("settingsBackdrop");
 const handle  = document.getElementById("settingsHandle");
 const radios  = document.querySelectorAll('input[name="polarMethod"]');
+const presetRadios = document.querySelectorAll('input[name="preset"]');
 
 // Pending state so rapid open/close cycles don't leak listeners or
 // race each other:
@@ -237,5 +238,111 @@ const known = new Set(Object.values(POLAR_METHODS));
 for (const r of radios) {
   if (!known.has(r.value)) {
     console.error(`[settingsPanel] unknown polar method value in DOM: "${r.value}"`);
+  }
+}
+
+// Initialize the preset radio to whatever's persisted and write back
+// any user selection. setPreset() fans the change out to subscribers
+// (panel.js) so the side panel re-renders with the new angles. Mirrors
+// the polar-method pattern above.
+const currentPreset = getPreset();
+for (const r of presetRadios) {
+  if (r.value === currentPreset) r.checked = true;
+  r.addEventListener("change", (e) => {
+    if (e.target.checked) setPreset(e.target.value);
+  });
+}
+const knownPresets = new Set(PRESET_ORDER);
+for (const r of presetRadios) {
+  if (!knownPresets.has(r.value)) {
+    console.error(`[settingsPanel] unknown preset value in DOM: "${r.value}"`);
+  }
+}
+
+// One-time first-run intro for the new preset choice. localStorage
+// flag is independent of the persisted preset value so existing users
+// (who already have polar_method set but no gpt.preset yet) see the
+// intro once and then never again. Wrap in try/catch so a private-mode
+// localStorage rejection doesn't crash the dialog setup.
+const PRESET_INTRO_SEEN_KEY = "gpt.presetIntroSeen";
+const introOverlay = document.getElementById("presetIntroOverlay");
+const introClose   = document.getElementById("presetIntroClose");
+const introDismiss = document.getElementById("presetIntroDismiss");
+if (introOverlay && introClose && introDismiss) {
+  let seen = false;
+  try { seen = localStorage.getItem(PRESET_INTRO_SEEN_KEY) === "1"; } catch (_) {}
+  if (!seen) {
+    introOverlay.hidden = false;
+    // Save the element that had focus when the modal opened so we can
+    // restore it on dismiss (aria-modal expectation). On first page
+    // load this is usually document.body; on programmatic show it's
+    // whichever element triggered it.
+    const introPreviousFocus = document.activeElement;
+    // Move focus to the primary dismiss button so keyboard users have
+    // an obvious target and the Tab cycle has somewhere to start.
+    // RAF defers past the layout commit so focus() doesn't fight a
+    // pending hidden→shown transition. Gate on still-visible AND
+    // make the RAF cancellable from dismiss() so a fast click-close
+    // doesn't yank focus back into a now-hidden modal after dismiss
+    // already restored it.
+    let introFocusRaf = requestAnimationFrame(() => {
+      introFocusRaf = null;
+      if (!introOverlay.hidden) introDismiss.focus();
+    });
+    const onIntroKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); dismiss(); return; }
+      if (e.key !== "Tab") return;
+      // Two focusables in the modal — close (×) and Got it. Cycle
+      // between them so focus can't escape into the page behind.
+      // Also wrap when the active element is outside the modal:
+      // matches the safety-net behavior of the settings panel
+      // trapTab (see above) — if something programmatic or a
+      // browser-UI quirk moves focus outside, pull it back to the
+      // dialog rather than letting Tab walk into the page.
+      const first = introClose;
+      const last  = introDismiss;
+      const active = document.activeElement;
+      const inside = introOverlay.contains(active);
+      if (e.shiftKey && (active === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !inside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    // focusin safety net for the uncommon case where something
+    // other than Tab moves focus outside the dialog (programmatic
+    // focus() call, screen-reader navigation, etc.). Mirrors the
+    // settings panel's trapFocus.
+    const onIntroFocusIn = (e) => {
+      if (introOverlay.hidden) return;
+      if (introOverlay.contains(e.target)) return;
+      introDismiss.focus();
+    };
+    const dismiss = () => {
+      // Cancel the pending initial-focus RAF if it hasn't fired yet
+      // — otherwise it could focus introDismiss after we've already
+      // hidden the modal and restored focus to the opener.
+      if (introFocusRaf !== null) {
+        cancelAnimationFrame(introFocusRaf);
+        introFocusRaf = null;
+      }
+      introOverlay.hidden = true;
+      document.removeEventListener("keydown", onIntroKey);
+      document.removeEventListener("focusin", onIntroFocusIn);
+      try { localStorage.setItem(PRESET_INTRO_SEEN_KEY, "1"); } catch (_) {}
+      if (introPreviousFocus && typeof introPreviousFocus.focus === "function") {
+        introPreviousFocus.focus();
+      }
+    };
+    document.addEventListener("keydown", onIntroKey);
+    document.addEventListener("focusin", onIntroFocusIn);
+    introClose.addEventListener("click", dismiss);
+    introDismiss.addEventListener("click", dismiss);
+    // Click-outside on backdrop also dismisses.
+    introOverlay.addEventListener("click", (e) => {
+      if (e.target === introOverlay) dismiss();
+    });
   }
 }

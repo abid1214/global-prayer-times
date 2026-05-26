@@ -38,7 +38,10 @@
 
 import { getTimesForLocation, classifyByClock } from "../src/prayer.js";
 import { classifyPrayer } from "../src/solar.js";
-import { POLAR_METHODS, getMethod, setMethod } from "../src/settings.js";
+import {
+  POLAR_METHODS, getMethod, setMethod,
+  PRESETS, getPreset, setPreset,
+} from "../src/settings.js";
 
 const DEG = Math.PI / 180;
 
@@ -141,10 +144,24 @@ function referenceCoords(times, userLat, userLon) {
 // restoring the raw localStorage entry directly keeps the test
 // side-effect free.
 const STORAGE_KEY = "polar_method";
+const PRESET_STORAGE_KEY = "gpt.preset";
 let savedLocalStorage = null;
+let savedPresetStorage = null;
 try { savedLocalStorage = localStorage.getItem(STORAGE_KEY); } catch (_) {}
+try { savedPresetStorage = localStorage.getItem(PRESET_STORAGE_KEY); } catch (_) {}
 const originalMethod = getMethod();
+const originalPreset = getPreset();
 try {
+  // Force JAFARI for the main FIXTURES loop: classifyPrayer() in
+  // solar.js (the shader mirror) hard-codes 16°/4°/14° thresholds,
+  // so the clock-vs-sun agreement assertions only hold when the
+  // schedule was computed with those same Leva Qom angles. A
+  // contributor running the test page with `gpt.preset=tehran`
+  // persisted (or `?preset=tehran` in the URL) would otherwise see
+  // spurious failures from the angle mismatch. The finally block
+  // restores the user's actual preset. Stage 1 acceptance tests
+  // (further below) override preset explicitly per case.
+  setPreset(PRESETS.JAFARI);
   for (const fx of FIXTURES) {
     const base = new Date(fx.dateISO);
 
@@ -241,15 +258,195 @@ try {
       assertEq(band, expected, "crossDay band");
     });
   }
+
+  // ============================================================
+  // ----  Stage 1 acceptance block  ----
+  // ============================================================
+  // Locks in the four Stage 1 commits: preset selector (1.1),
+  // Method 4/5/6 Fajr-anchoring (1.2), default-method change (1.3),
+  // and this test/README pass (1.4). Numeric windows use sign +
+  // rough-magnitude bounds rather than tight intervals — latitude
+  // × season variation produces large noise in absolute deltas.
+
+  // Throws on invalid input rather than silently returning NaN. NaN
+  // propagating through a comparison like `(d < 15 || d > 22)` makes
+  // BOTH sides false, so an assertion that should fail (because the
+  // input was missing) instead silently passes. Surface the bad input
+  // loudly so missing-time regressions don't ride along.
+  const dmin = (a, b) => {
+    if (!(a instanceof Date) || !Number.isFinite(a.getTime())) throw new Error(`dmin: invalid first arg ${a}`);
+    if (!(b instanceof Date) || !Number.isFinite(b.getTime())) throw new Error(`dmin: invalid second arg ${b}`);
+    return (a.getTime() - b.getTime()) / 60000;
+  };
+  const isFiniteDate = (d) => d instanceof Date && Number.isFinite(d.getTime());
+
+  // ---- 1.1: Tehran preset, Tehran coords, 2026-06-21 ----
+  // Tehran preset = 17.7° Fajr / 4.5° Maghrib / 14° Isha.
+  setPreset(PRESETS.TEHRAN);
+  setMethod(POLAR_METHODS.AQRAB_NEAREST_CITY);
+  const tehranDate = new Date("2026-06-21T12:00:00Z");
+  const tehranT = getTimesForLocation(35.6892, 51.3890, tehranDate);
+  test("[Stage1.1] Tehran preset · Tehran 2026-06-21 · maghrib − sunset ∈ [15, 22] min", () => {
+    if (!isFiniteDate(tehranT.raw?.sunset)) throw new Error("sunset NaN");
+    const d = dmin(tehranT.maghrib, tehranT.raw.sunset);
+    if (d < 15 || d > 22) throw new Error(`got ${d.toFixed(2)} min`);
+  });
+  test("[Stage1.1] Tehran preset · Tehran 2026-06-21 · sunrise − fajr ∈ [80, 115] min", () => {
+    // Tehran solstice Fajr−sunrise window is wider than the spec's
+    // initial 70–90 estimate because the sun's path is shallow in
+    // summer mid-latitudes: 17.7° depression takes longer to climb
+    // to 0.833° than at equinox. Real value at Tehran solstice: 107 min.
+    const d = dmin(tehranT.sunrise, tehranT.fajr);
+    if (d < 80 || d > 115) throw new Error(`got ${d.toFixed(2)} min`);
+  });
+
+  // ---- 1.1: Jafari preset, same coords/date ----
+  setPreset(PRESETS.JAFARI);
+  const tehranJ = getTimesForLocation(35.6892, 51.3890, tehranDate);
+  test("[Stage1.1] Jafari preset · Tehran 2026-06-21 · maghrib − sunset ∈ [12, 19] min", () => {
+    if (!isFiniteDate(tehranJ.raw?.sunset)) throw new Error("sunset NaN");
+    const d = dmin(tehranJ.maghrib, tehranJ.raw.sunset);
+    if (d < 12 || d > 19) throw new Error(`got ${d.toFixed(2)} min`);
+  });
+
+  // ---- 1.1: Preset switch parity at Karbala ----
+  setPreset(PRESETS.JAFARI);
+  const karbalaJ = getTimesForLocation(32.61, 44.02, tehranDate);
+  setPreset(PRESETS.TEHRAN);
+  const karbalaT = getTimesForLocation(32.61, 44.02, tehranDate);
+  test("[Stage1.1] Karbala 2026-06-21 · ΔFajr (tehran − jafari) ∈ [−15, −8] min", () => {
+    const d = dmin(karbalaT.fajr, karbalaJ.fajr);
+    if (d < -15 || d > -8) throw new Error(`got ${d.toFixed(2)} min`);
+  });
+  test("[Stage1.1] Karbala 2026-06-21 · ΔMaghrib (tehran − jafari) ∈ [+2, +5] min", () => {
+    const d = dmin(karbalaT.maghrib, karbalaJ.maghrib);
+    if (d < 2 || d > 5) throw new Error(`got ${d.toFixed(2)} min`);
+  });
+  test("[Stage1.1] Karbala 2026-06-21 · |ΔIsha (tehran − jafari)| < 30 sec", () => {
+    const ds = Math.abs(karbalaT.isha.getTime() - karbalaJ.isha.getTime()) / 1000;
+    if (ds >= 30) throw new Error(`got ${ds.toFixed(1)} sec`);
+  });
+
+  // ---- 1.2: Method 4 Fajr-anchor materializes (in-cap edge geometry).
+  // Spec asked for φ=50°N λ=0° 2026-06-21, but at that lat/date
+  // |φ+δ| = 73.44° < 74° → BELOW the cap, so getTimesForLocation
+  // takes the off-cap branch and Method 4 logic never runs (M4 only
+  // fires inside the cap). The Fajr-anchor change is observable in
+  // the narrow cap-edge regime where today.fajr is unreachable but
+  // tomorrow.fajr is reachable. At φ=51°N λ=0°, 2026-07-02 hits
+  // this: today min-alt ≈ -15.99° (just above −16°, unreachable),
+  // tomorrow min-alt ≈ -16.07° (just below −16°, reachable). Isha
+  // shifts by ~109 min between sunrise-anchored (old) and Fajr-
+  // anchored (new) — easily ≥ 1 min.
+  setPreset(PRESETS.JAFARI);
+  setMethod(POLAR_METHODS.MIDNIGHT);
+  const m4Edge = getTimesForLocation(51, 0, new Date("2026-07-02T12:00:00Z"));
+  test("[Stage1.2] Method 4 cap-edge (51°N 0° 2026-07-02) · polarMethod.kind = 'midnight'", () => {
+    assertEq(m4Edge.polarMethod?.kind, "midnight", "kind");
+  });
+  test("[Stage1.2] Method 4 cap-edge · Isha − Maghrib < 180 min (Fajr-anchored, was ~213 with sunrise)", () => {
+    // Under the OLD sunrise anchor at this lat/date the (isha −
+    // maghrib) interval was ~3h33m (213 min). Under the new Fajr
+    // anchor (when tomorrow's Fajr is reachable) the interval
+    // collapses to ~1h44m (104 min). 180 min is comfortably between
+    // the two — a sign-and-magnitude check rather than a tight
+    // interval.
+    const d = dmin(m4Edge.isha, m4Edge.maghrib);
+    if (d >= 180) throw new Error(`isha − maghrib = ${d.toFixed(2)} min (expected < 180 under Fajr anchor)`);
+  });
+
+  // ---- 1.2: Method 4 sunrise-fallback inside the cap ----
+  setPreset(PRESETS.JAFARI);
+  setMethod(POLAR_METHODS.MIDNIGHT);
+  const m4InCap = getTimesForLocation(60, 30, new Date("2026-06-21T12:00:00Z"));
+  test("[Stage1.2] Method 4 inside cap (60°N 30°E 2026-06-21) · endOfNightSource = 'sunrise-fallback'", () => {
+    assertEq(m4InCap.polarMethod?.kind, "midnight", "kind");
+    assertEq(m4InCap.polarMethod?.endOfNightSource, "sunrise-fallback", "endOfNightSource");
+  });
+  // The session-deduped console.warn is non-deterministic across test
+  // re-runs (the boolean is reset by reload but not by re-running
+  // the test block). Not asserted here.
+
+  // ---- 1.2: 60°N source label across seasons ----
+  // Spec described a "flip from sunrise-fallback to fajr across the
+  // equinox at 60°N". The actual behavior: at 60°N solstice we're
+  // in cap (covered above); at 60°N equinox |φ+δ|=60°<74° so we're
+  // BELOW the cap and Method 4 doesn't run at all — polarMethod
+  // is null. The observable spec is the cap-membership flip, not
+  // the source-label flip.
+  setPreset(PRESETS.JAFARI);
+  setMethod(POLAR_METHODS.MIDNIGHT);
+  const m4Equinox = getTimesForLocation(60, 30, new Date("2026-03-20T12:00:00Z"));
+  test("[Stage1.2] Method 4 at 60°N vernal equinox · below cap; polarMethod = null", () => {
+    if (m4Equinox.polarMethod !== null) {
+      throw new Error(`expected null polarMethod below cap, got ${JSON.stringify(m4Equinox.polarMethod)}`);
+    }
+  });
+
+  // ---- 1.3: Tromsø Method 2 structural assertion ----
+  setPreset(PRESETS.JAFARI);
+  setMethod(POLAR_METHODS.AQRAB_NEAREST_CITY);
+  const tromso = getTimesForLocation(69.65, 18.95, new Date("2026-06-21T12:00:00Z"));
+  test("[Stage1.3] Tromsø 2026-06-21 Method 2 · polarMethod.kind = 'aqrab_city'", () => {
+    assertEq(tromso.polarMethod?.kind, "aqrab_city", "kind");
+  });
+  test("[Stage1.3] Tromsø Method 2 · city.name is non-empty string", () => {
+    const c = tromso.polarMethod?.city;
+    if (!c || typeof c.name !== "string" || c.name.length === 0) {
+      throw new Error(`city not resolved: ${JSON.stringify(c)}`);
+    }
+  });
+  test("[Stage1.3] Tromsø Method 2 · city.lat < 65° (temperate substitute)", () => {
+    const c = tromso.polarMethod?.city;
+    if (!c || c.lat >= 65) throw new Error(`city.lat = ${c?.lat}, expected < 65`);
+  });
+  test("[Stage1.3] Tromsø Method 2 · city.lat ≤ projectedFromLat", () => {
+    const c = tromso.polarMethod?.city;
+    const proj = tromso.polarMethod?.projectedFromLat;
+    if (!c || !Number.isFinite(proj) || c.lat > proj) {
+      throw new Error(`city.lat = ${c?.lat}, projectedFromLat = ${proj}`);
+    }
+  });
+  test("[Stage1.3] Tromsø Method 2 · all panel times finite", () => {
+    for (const key of ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"]) {
+      if (!isFiniteDate(tromso[key])) throw new Error(`${key} not finite: ${tromso[key]}`);
+    }
+  });
+
+  // ---- 1.4: Classifier agreement at the spec's explicit cell ----
+  // φ = 30°N, λ = 0°, 2026-06-21, hourly through the day, Method 1.
+  // The fixture loop above covers this kind of test at NYC equinox;
+  // this adds the spec's exact coords for completeness.
+  setPreset(PRESETS.JAFARI);
+  setMethod(POLAR_METHODS.AQRAB_SAME_LON);
+  {
+    const base = new Date("2026-06-21T12:00:00Z");
+    const times = getTimesForLocation(30, 0, base);
+    const ref = referenceCoords(times, 30, 0);
+    for (const dh of HOUR_OFFSETS) {
+      const now = new Date(base.getTime() + dh * 3600 * 1000);
+      const sunBand   = classifyPrayer(ref.lat * DEG, ref.lon * DEG, now);
+      const clockBand = classifyByClock(times, now);
+      test(`[Stage1.4] 30°N 0° 2026-06-21 @ ${dh.toFixed(1)}h · Method 1 · clock === sun`, () => {
+        assertEq(clockBand, sunBand, "classifier disagreement");
+      });
+    }
+  }
 } finally {
-  // setMethod() restores settings.js's in-memory cache (so any
-  // post-test getMethod() returns the original choice). Then
-  // overwrite localStorage with the raw saved value so a ?m= URL
-  // override at load time doesn't leak into persistent storage.
+  // setMethod() / setPreset() restore settings.js's in-memory caches
+  // (so any post-test getMethod() / getPreset() returns the original
+  // choice). Then overwrite localStorage with the raw saved values so
+  // a ?m= or ?preset= URL override at load time doesn't leak into
+  // persistent storage.
   setMethod(originalMethod);
+  setPreset(originalPreset);
   try {
     if (savedLocalStorage === null) localStorage.removeItem(STORAGE_KEY);
     else localStorage.setItem(STORAGE_KEY, savedLocalStorage);
+  } catch (_) {}
+  try {
+    if (savedPresetStorage === null) localStorage.removeItem(PRESET_STORAGE_KEY);
+    else localStorage.setItem(PRESET_STORAGE_KEY, savedPresetStorage);
   } catch (_) {}
 }
 

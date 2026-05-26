@@ -9,7 +9,7 @@ import { showPanelForLocation } from "./panel.js";
 import { aqrabProjection } from "./prayer.js";
 import { initSearch } from "./search.js";
 import { GlobeControls } from "./globeControls.js";
-import { POLAR_METHODS, getMethod, subscribe as subscribeMethod } from "./settings.js";
+import { POLAR_METHODS, getMethod, subscribe as subscribeMethod, subscribePreset } from "./settings.js";
 import { snapToNearestHighLatCity } from "./highLatCities.js";
 
 // Uniformly-lit NASA Blue Marble composite (no baked-in sunlight shading).
@@ -683,6 +683,11 @@ function selectLocation(latDeg, lonDeg, name) {
 // src/panel.js. Subscriber is global and never unsubscribed — main.js
 // runs for the lifetime of the page.
 subscribeMethod(() => refreshProjectionForCurrentSelection());
+// Preset change also moves the cap edge (Tehran's 17.7° Fajr puts the
+// cap at 72.3°N vs Leva Qom's 74°N), so the pin's position depends on
+// the active preset via aqrabProjection's preset-aware threshold.
+// Mirror the method-change subscription so the pin tracks live.
+subscribePreset(() => refreshProjectionForCurrentSelection());
 
 // ---- ticking ----
 function updateSunUniforms(date) {
