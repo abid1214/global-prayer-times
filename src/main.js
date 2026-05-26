@@ -28,10 +28,30 @@ function setDPR(dpr) {
   currentDPR = dpr;
   renderer.setPixelRatio(dpr);
   renderer.setSize(window.innerWidth, window.innerHeight, false);
+  // LineMaterial.resolution must track the drawing-buffer size, not
+  // CSS pixels — pixel-width strokes drift when DPR flips between
+  // HI/LO during motion otherwise.
+  refreshLineResolutions();
 }
 renderer.setPixelRatio(HI_DPR);
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+// Vector2 reused by lineResolution()/refreshLineResolutions().
+const _drawSize = new THREE.Vector2();
+function lineResolution() {
+  // Drawing-buffer size = CSS pixels × DPR. LineMaterial expects this
+  // (NOT window.innerWidth/Height) — without it, strokes render at
+  // wrong pixel widths on high-DPI screens.
+  return renderer.getDrawingBufferSize(new THREE.Vector2());
+}
+function refreshLineResolutions() {
+  renderer.getDrawingBufferSize(_drawSize);
+  const lines = [qiblaLine, projectionLine, sunLine, equatorLine, sunTrace, subsolarTrace];
+  for (const l of lines) {
+    if (l) l.material.resolution.copy(_drawSize);
+  }
+}
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070d);
@@ -361,7 +381,7 @@ function makeSunLine() {
     linewidth: 1.5,
     transparent: true,
     opacity: 0.55,
-    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+    resolution: lineResolution(),
   });
   const line = new Line2(geo, mat);
   // setPositions only rewrites the instance buffer, not the bounding
@@ -391,7 +411,7 @@ function makeEquatorLine() {
     linewidth: 1.8,
     transparent: true,
     opacity: 0.85,
-    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+    resolution: lineResolution(),
   });
   return new Line2(geo, mat);
 }
@@ -407,7 +427,7 @@ function makeSunTrace() {
     linewidth: 1.6,
     transparent: true,
     opacity: 0.7,
-    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+    resolution: lineResolution(),
   });
   const line = new Line2(geo, mat);
   line.frustumCulled = false;
@@ -428,7 +448,7 @@ function makeSubsolarTrace() {
     linewidth: 1.8,
     transparent: true,
     opacity: 0.95,
-    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+    resolution: lineResolution(),
   });
   const line = new Line2(geo, mat);
   line.frustumCulled = false;
@@ -497,7 +517,7 @@ function setQiblaFrom(latDeg, lonDeg) {
     transparent: true,
     opacity: 1.0,
     depthTest: false,
-    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+    resolution: lineResolution(),
   });
   qiblaLine = new Line2(geom, mat);
   qiblaLine.renderOrder = 2;
@@ -582,7 +602,7 @@ function setProjectionViz(actualLatDeg, actualLonDeg, targetLatDeg, targetLonDeg
     transparent: true,
     opacity: 0.9,
     depthTest: false,
-    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+    resolution: lineResolution(),
   });
   projectionLine = new Line2(geom, mat);
   projectionLine.renderOrder = 2;
@@ -705,9 +725,36 @@ function updateSunUniforms(date) {
         SURF_TRACE_BUF[idx + 2] = d[2] * SURFACE_RING_R;
       }
     }
-    if (sunTrace) sunTrace.geometry.setPositions(FAR_TRACE_BUF);
-    if (subsolarTrace) subsolarTrace.geometry.setPositions(SURF_TRACE_BUF);
+    // LineGeometry.setPositions allocates a fresh Float32Array per
+    // call (size 2 * vertex_count) plus an InstancedInterleavedBuffer
+    // — at scrubber-drag rates that's measurable GC churn. Write the
+    // interleaved start/end buffer in place instead.
+    if (sunTrace) updateTraceInPlace(sunTrace.geometry, FAR_TRACE_BUF);
+    if (subsolarTrace) updateTraceInPlace(subsolarTrace.geometry, SURF_TRACE_BUF);
   }
+}
+
+// Update a LineGeometry's instanceStart/instanceEnd interleaved
+// buffer in place from a flat [x,y,z, x,y,z, ...] vertex array. Lets
+// us replace LineGeometry.setPositions for the per-tick trace
+// updates without allocating. Assumes the geometry was sized by a
+// prior setPositions call with the same vertex count (so the buffer
+// already has the right length).
+function updateTraceInPlace(geometry, vertices) {
+  const ib = geometry.attributes.instanceStart.data;
+  const arr = ib.array;
+  const segments = vertices.length / 3 - 1;
+  for (let i = 0; i < segments; i++) {
+    const o = i * 6;
+    const p = i * 3;
+    arr[o + 0] = vertices[p + 0];
+    arr[o + 1] = vertices[p + 1];
+    arr[o + 2] = vertices[p + 2];
+    arr[o + 3] = vertices[p + 3];
+    arr[o + 4] = vertices[p + 4];
+    arr[o + 5] = vertices[p + 5];
+  }
+  ib.needsUpdate = true;
 }
 
 const clockEl = document.getElementById("clock");
@@ -920,12 +967,7 @@ window.addEventListener("resize", () => {
   // Line2's pixel width depends on the resolution uniform — without these
   // updates, both arcs would render with stale widths until the user
   // selected a new location and the lines were rebuilt.
-  if (qiblaLine) qiblaLine.material.resolution.set(window.innerWidth, window.innerHeight);
-  if (projectionLine) projectionLine.material.resolution.set(window.innerWidth, window.innerHeight);
-  if (sunLine) sunLine.material.resolution.set(window.innerWidth, window.innerHeight);
-  if (equatorLine) equatorLine.material.resolution.set(window.innerWidth, window.innerHeight);
-  if (sunTrace) sunTrace.material.resolution.set(window.innerWidth, window.innerHeight);
-  if (subsolarTrace) subsolarTrace.material.resolution.set(window.innerWidth, window.innerHeight);
+  refreshLineResolutions();
   markDirty();
 });
 
