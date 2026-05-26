@@ -281,8 +281,14 @@ if (introOverlay && introClose && introDismiss) {
     // Move focus to the primary dismiss button so keyboard users have
     // an obvious target and the Tab cycle has somewhere to start.
     // RAF defers past the layout commit so focus() doesn't fight a
-    // pending hidden→shown transition.
-    requestAnimationFrame(() => introDismiss.focus());
+    // pending hidden→shown transition. Gate on still-visible AND
+    // make the RAF cancellable from dismiss() so a fast click-close
+    // doesn't yank focus back into a now-hidden modal after dismiss
+    // already restored it.
+    let introFocusRaf = requestAnimationFrame(() => {
+      introFocusRaf = null;
+      if (!introOverlay.hidden) introDismiss.focus();
+    });
     const onIntroKey = (e) => {
       if (e.key === "Escape") { e.preventDefault(); dismiss(); return; }
       if (e.key !== "Tab") return;
@@ -315,6 +321,13 @@ if (introOverlay && introClose && introDismiss) {
       introDismiss.focus();
     };
     const dismiss = () => {
+      // Cancel the pending initial-focus RAF if it hasn't fired yet
+      // — otherwise it could focus introDismiss after we've already
+      // hidden the modal and restored focus to the opener.
+      if (introFocusRaf !== null) {
+        cancelAnimationFrame(introFocusRaf);
+        introFocusRaf = null;
+      }
       introOverlay.hidden = true;
       document.removeEventListener("keydown", onIntroKey);
       document.removeEventListener("focusin", onIntroFocusIn);

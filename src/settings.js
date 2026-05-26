@@ -11,13 +11,20 @@ export const PRESETS = Object.freeze({
 
 export const PRESET_ORDER = [PRESETS.JAFARI, PRESETS.TEHRAN];
 
-// Display metadata. Angles are advisory; the actual adhan parameters
-// are constructed by paramsForPreset() in src/prayer.js — built via
-// CalculationMethod.Tehran() for the Tehran preset and via
-// CalculationMethod.Other() with explicit 16°/4°/14° for the Leva
-// Qom preset (adhan 4.4.3 does not expose a Jafari() factory; see
-// METHODS.md). Listing the angles here so the UI can show them
-// without importing adhan.
+// Preset metadata. The actual adhan parameters are constructed by
+// paramsForPreset() in src/prayer.js — built via CalculationMethod
+// .Tehran() for the Tehran preset and via CalculationMethod.Other()
+// with explicit 16°/4°/14° for the Leva Qom preset (adhan 4.4.3 does
+// not expose a Jafari() factory; see METHODS.md).
+//
+// IMPORTANT: angles here are NOT purely advisory. They are also read
+// by activeFajrAngleDeg() in src/prayer.js to derive the preset-aware
+// Fajr-cap threshold for aqrabProjection() and reachableFajr(). If
+// you change a preset's fajrAngle here, the cap edge moves with it
+// (Tehran 17.7° → cap at 72.3°N; Leva Qom 16° → cap at 74°N). Keep
+// these in lockstep with the params returned by paramsForPreset()
+// or the panel's "in cap" decision will diverge from the actual
+// computed schedule.
 export const PRESET_META = Object.freeze({
   [PRESETS.JAFARI]: Object.freeze({
     id: PRESETS.JAFARI,
