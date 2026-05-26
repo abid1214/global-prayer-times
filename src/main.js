@@ -12,8 +12,14 @@ import { GlobeControls } from "./globeControls.js";
 import { POLAR_METHODS, getMethod, subscribe as subscribeMethod, subscribePreset } from "./settings.js";
 import { snapToNearestHighLatCity } from "./highLatCities.js";
 
-// Uniformly-lit NASA Blue Marble composite (no baked-in sunlight shading).
-const DAY_TEXTURE = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
+// Flat cartographic look (Google-Maps-style: cream land + pale blue
+// water). Built procedurally from three-globe's water mask in
+// buildFlatEarthTexture() so we don't take a dependency on a
+// specific cartographic JPG. The mask is grayscale: 255 = water,
+// 0 = land, with anti-aliased coastlines.
+const WATER_MASK_URL = "https://unpkg.com/three-globe/example/img/earth-water.png";
+const LAND_COLOR = [0xe8, 0xe0, 0xc8];   // warm cream
+const WATER_COLOR = [0xb8, 0xd4, 0xe8];  // pale blue
 
 const MECCA_LAT = 21.4225;
 const MECCA_LON = 39.8262;
@@ -140,30 +146,55 @@ controls.zoomSpeed = 0.6;
 }
 
 // Earth
-const loader = new THREE.TextureLoader();
-loader.crossOrigin = "anonymous";
-
-function loadTex(url) {
+function loadImage(url) {
   return new Promise((resolve, reject) => {
-    loader.load(
-      url,
-      (tex) => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.wrapS = THREE.RepeatWrapping;
-        tex.wrapT = THREE.ClampToEdgeWrapping;
-        // Disable mipmaps to avoid a seam at the dateline (atan2 jumps from
-        // -π to +π so derivatives spike across the seam, picking a low mip).
-        tex.minFilter = THREE.LinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-        tex.generateMipmaps = false;
-        tex.anisotropy = renderer.capabilities.getMaxAnisotropy?.() || 8;
-        tex.needsUpdate = true;
-        resolve(tex);
-      },
-      undefined,
-      reject
-    );
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
   });
+}
+
+// Render a flat-color cartographic globe texture by reading the
+// water-mask greyscale and lerping every pixel between LAND_COLOR
+// and WATER_COLOR. Mask antialiasing along coastlines carries through
+// to a soft beach-line gradient. Returns a CanvasTexture configured
+// the same way the original TextureLoader path did (no mipmaps, so
+// the dateline seam doesn't pick a low mip).
+async function buildFlatEarthTexture() {
+  const img = await loadImage(WATER_MASK_URL);
+  const W = img.naturalWidth;
+  const H = img.naturalHeight;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, W, H);
+  const data = ctx.getImageData(0, 0, W, H);
+  const pixels = data.data;
+  const [lr, lg, lb] = LAND_COLOR;
+  const [wr, wg, wb] = WATER_COLOR;
+  for (let i = 0; i < pixels.length; i += 4) {
+    const t = pixels[i] / 255;
+    pixels[i + 0] = (lr * (1 - t) + wr * t) | 0;
+    pixels[i + 1] = (lg * (1 - t) + wg * t) | 0;
+    pixels[i + 2] = (lb * (1 - t) + wb * t) | 0;
+    pixels[i + 3] = 255;
+  }
+  ctx.putImageData(data, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  // Disable mipmaps to avoid a seam at the dateline (atan2 jumps from
+  // -π to +π so derivatives spike across the seam, picking a low mip).
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy?.() || 8;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 const earthGroup = new THREE.Group();
@@ -199,7 +230,7 @@ const SURF_TRACE_BUF = new Float32Array((SUN_TRACE_SEGMENTS + 1) * 3);
 const _traceDate = new Date();
 
 (async function init() {
-  const dayTex = await loadTex(DAY_TEXTURE);
+  const dayTex = await buildFlatEarthTexture();
   earthMaterial = createEarthMaterial({ dayMap: dayTex });
   earthMesh = new THREE.Mesh(earthGeo, earthMaterial);
   earthGroup.add(earthMesh);
@@ -728,7 +759,11 @@ function resampleTraces() {
   // moving through the year by full days — anchor to the scrubbed
   // date so the orange ring migrates between the tropics as
   // declination changes.
-  const center = scrubMode === "h" ? Date.now() : (Date.now() + scrubOffsetMs);
+  // Anchor on the scrubbed day only — hour scrubbing should slide
+  // the sun marker ALONG the trace without shifting the trace
+  // itself. Day scrubs change declination, so the trace migrates
+  // between the tropics across the year.
+  const center = Date.now() + scrubDayOffsetMs;
   const t0 = center - SUN_TRACE_HALF_MS;
   const step = (2 * SUN_TRACE_HALF_MS) / SUN_TRACE_SEGMENTS;
   // Reuse FAR_TRACE_BUF / SURF_TRACE_BUF / _traceDate to skip the
@@ -811,11 +846,19 @@ function updateClock(date, isLive) {
 }
 
 // ---- time scrubber ----
-let scrubOffsetMs = 0;
-let scrubLive = true;
+// Independent hour-of-day and day-of-year offsets — toggling the mode
+// button just swaps which one the slider drives, neither is reset.
+// Only the LIVE button clears both back to zero. Effective time =
+// real now + day offset + hour offset.
+let scrubHourOffsetMs = 0;
+let scrubDayOffsetMs = 0;
 
 function effectiveNow() {
-  return new Date(Date.now() + scrubOffsetMs);
+  return new Date(Date.now() + scrubDayOffsetMs + scrubHourOffsetMs);
+}
+
+function isScrubLive() {
+  return scrubHourOffsetMs === 0 && scrubDayOffsetMs === 0;
 }
 
 // Two scrubber modes — same slider, different scale.
@@ -826,6 +869,13 @@ const SCRUB_MODES = {
   d: { min: -366, max: 366, step: 1,    msPerUnit: 86_400_000 },
 };
 let scrubMode = "h";
+function activeOffsetMs() {
+  return scrubMode === "h" ? scrubHourOffsetMs : scrubDayOffsetMs;
+}
+function setActiveOffsetMs(ms) {
+  if (scrubMode === "h") scrubHourOffsetMs = ms;
+  else scrubDayOffsetMs = ms;
+}
 // Reassigned inside initScrubber once the DOM is wired up. Called from
 // the throttled tick so the date-mode label keeps tracking the wall clock
 // (e.g. crossing midnight) without requiring user interaction.
@@ -837,62 +887,54 @@ function initScrubber() {
   const label = document.getElementById("scrubLabel");
   const modeBtn = document.getElementById("scrubMode");
 
-  function fmtTimeOffset(ms) {
-    if (Math.abs(ms) < 30 * 1000) return "now";
-    const sign = ms >= 0 ? "+" : "−";
-    const abs = Math.abs(ms);
-    const h = Math.floor(abs / 3600000);
-    const m = Math.round((abs - h * 3600000) / 60000);
-    if (h === 0) return `${sign}${m}m`;
-    return `${sign}${h}h ${String(m).padStart(2, "0")}m`;
-  }
-
-  const dateFmt = new Intl.DateTimeFormat([], { month: "short", day: "numeric" });
-  function fmtDateOffset(ms) {
-    if (Math.abs(ms) < 86_400_000 / 2) return "today";
-    return dateFmt.format(new Date(Date.now() + ms));
-  }
-
+  const monthFmt = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
   function refreshLabel() {
-    label.textContent = scrubMode === "h" ? fmtTimeOffset(scrubOffsetMs) : fmtDateOffset(scrubOffsetMs);
+    if (isScrubLive()) {
+      label.textContent = "now";
+      return;
+    }
+    const d = effectiveNow();
+    const month = monthFmt.format(d);
+    const day = d.getUTCDate();
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    label.textContent = `${month} ${day} ${hh}:${mm} UTC`;
   }
   refreshScrubLabel = refreshLabel;
 
-  function applyMode() {
+  function syncSliderToMode() {
     const cfg = SCRUB_MODES[scrubMode];
     slider.min = String(cfg.min);
     slider.max = String(cfg.max);
     slider.step = String(cfg.step);
-    slider.value = "0";
-    scrubOffsetMs = 0;
-    scrubLive = true;
-    live.classList.add("active");
+    slider.value = String(Math.round(activeOffsetMs() / cfg.msPerUnit));
     modeBtn.textContent = scrubMode;
     modeBtn.classList.toggle("date-mode", scrubMode === "d");
     modeBtn.title = scrubMode === "h" ? "Switch to date scrubbing" : "Switch to time scrubbing";
     modeBtn.setAttribute("aria-pressed", scrubMode === "d" ? "true" : "false");
     refreshLabel();
-    const now = effectiveNow();
-    updateSunUniforms(now);
-    updateClock(now, scrubLive);
-    refreshProjectionForCurrentSelection();
-    markDirty();
+    live.classList.toggle("active", isScrubLive());
   }
 
   modeBtn.addEventListener("click", () => {
+    // Mode toggle only swaps which offset the slider drives; offsets
+    // themselves are preserved so the user can compose hour and day
+    // scrubs.
     scrubMode = scrubMode === "h" ? "d" : "h";
-    applyMode();
+    syncSliderToMode();
+    // Effective time hasn't changed across the toggle, so no
+    // updateSunUniforms / clock refresh needed.
+    markDirty();
   });
 
   slider.addEventListener("input", () => {
     const units = parseInt(slider.value, 10);
-    scrubOffsetMs = units * SCRUB_MODES[scrubMode].msPerUnit;
-    scrubLive = scrubOffsetMs === 0;
+    setActiveOffsetMs(units * SCRUB_MODES[scrubMode].msPerUnit);
     refreshLabel();
-    live.classList.toggle("active", scrubLive);
+    live.classList.toggle("active", isScrubLive());
     const now = effectiveNow();
     updateSunUniforms(now);
-    updateClock(now, scrubLive);
+    updateClock(now, isScrubLive());
     // Threshold latitude depends on declination, which moves as the
     // user scrubs the date. Re-aim the teal pin/arc against the new
     // date so they stay in sync with the panel's "projected from N°".
@@ -903,24 +945,21 @@ function initScrubber() {
   });
 
   live.addEventListener("click", () => {
+    scrubHourOffsetMs = 0;
+    scrubDayOffsetMs = 0;
     slider.value = "0";
-    scrubOffsetMs = 0;
-    scrubLive = true;
     refreshLabel();
     live.classList.add("active");
     const now = effectiveNow();
     updateSunUniforms(now);
-    updateClock(now, scrubLive);
+    updateClock(now, true);
     refreshProjectionForCurrentSelection();
     markDirty();
   });
 
-  // Initial state — mirrors applyMode without clobbering scrub state.
-  modeBtn.textContent = scrubMode;
-  modeBtn.title = "Switch to date scrubbing";
-  modeBtn.setAttribute("aria-pressed", "false");
-  refreshLabel();
-  live.classList.add("active");
+  // Initial state — same shape as syncSliderToMode but doesn't touch
+  // slider min/max/step (the HTML defaults match hour mode).
+  syncSliderToMode();
 }
 
 // ---- toggles ----
@@ -982,7 +1021,7 @@ function start() {
     if (t - lastUniformUpdate > 500) {
       const now = effectiveNow();
       updateSunUniforms(now);
-      updateClock(now, scrubLive);
+      updateClock(now, isScrubLive());
       refreshScrubLabel();
       lastUniformUpdate = t;
       dirty = true;
