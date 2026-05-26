@@ -499,12 +499,19 @@ function midnightTimes(latDeg, lonDeg, date, params) {
   // out adhan's middleofthenight synthesis so we anchor only on
   // physically attainable Fajr times — otherwise the midnight rule
   // would silently nest inside itself when the user is past the cap.
-  const ctx = { latDeg, lonDeg, date, method: 4 };
-  const todayFajr    = reachableFajr(latDeg, date,            today.fajr);
+  //
+  // Two separate contexts: each endOfNight() call is about a
+  // different Fajr-date (today's for last-night's end, tomorrow's
+  // for this-night's end). The diagnostic warn includes the date,
+  // so passing a single shared ctx would misreport which day's
+  // Fajr was unresolvable when the warn fires on the tomorrow anchor.
   const tomorrowDate = addDays(date, 1);
+  const todayFajr    = reachableFajr(latDeg, date,         today.fajr);
   const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr);
-  const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctx);
-  const thisEnd = endOfNight({ nextFajr: tomorrowFajr, nextSunrise: nextRise }, ctx);
+  const ctxLast = { latDeg, lonDeg, date,         method: 4 };
+  const ctxThis = { latDeg, lonDeg, date: tomorrowDate, method: 4 };
+  const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctxLast);
+  const thisEnd = endOfNight({ nextFajr: tomorrowFajr, nextSunrise: nextRise }, ctxThis);
 
   // FALLBACK INVARIANT: any path that synthesizes prayer times must
   // return strictly-chronological values (fajr < sunrise < dhuhr <
@@ -569,12 +576,16 @@ function seventhTimes(latDeg, lonDeg, date, params) {
   const tSunrise = today.sunrise;
   const nextRise = tomorrow.sunrise;
 
-  const ctx = { latDeg, lonDeg, date, method: 5 };
-  const todayFajr    = reachableFajr(latDeg, date,            today.fajr);
+  // Separate contexts so the diagnostic warn reports the correct
+  // Fajr-date per endOfNight call (see midnightTimes for the same
+  // rationale).
   const tomorrowDate = addDays(date, 1);
+  const todayFajr    = reachableFajr(latDeg, date,         today.fajr);
   const tomorrowFajr = reachableFajr(latDeg, tomorrowDate, tomorrow.fajr);
-  const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctx);
-  const thisEnd = endOfNight({ nextFajr: tomorrowFajr, nextSunrise: nextRise }, ctx);
+  const ctxLast = { latDeg, lonDeg, date,         method: 5 };
+  const ctxThis = { latDeg, lonDeg, date: tomorrowDate, method: 5 };
+  const lastEnd = endOfNight({ nextFajr: todayFajr,    nextSunrise: tSunrise }, ctxLast);
+  const thisEnd = endOfNight({ nextFajr: tomorrowFajr, nextSunrise: nextRise }, ctxThis);
 
   // FALLBACK INVARIANT (see midnightTimes; enforced by
   // assertChronological in tests/classifierAgreement.test.js).

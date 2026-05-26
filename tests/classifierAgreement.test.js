@@ -258,7 +258,16 @@ try {
   // rough-magnitude bounds rather than tight intervals — latitude
   // × season variation produces large noise in absolute deltas.
 
-  const dmin = (a, b) => (a.getTime() - b.getTime()) / 60000;
+  // Throws on invalid input rather than silently returning NaN. NaN
+  // propagating through a comparison like `(d < 15 || d > 22)` makes
+  // BOTH sides false, so an assertion that should fail (because the
+  // input was missing) instead silently passes. Surface the bad input
+  // loudly so missing-time regressions don't ride along.
+  const dmin = (a, b) => {
+    if (!(a instanceof Date) || !Number.isFinite(a.getTime())) throw new Error(`dmin: invalid first arg ${a}`);
+    if (!(b instanceof Date) || !Number.isFinite(b.getTime())) throw new Error(`dmin: invalid second arg ${b}`);
+    return (a.getTime() - b.getTime()) / 60000;
+  };
   const isFiniteDate = (d) => d instanceof Date && Number.isFinite(d.getTime());
 
   // ---- 1.1: Tehran preset, Tehran coords, 2026-06-21 ----

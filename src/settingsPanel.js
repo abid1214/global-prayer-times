@@ -288,26 +288,43 @@ if (introOverlay && introClose && introDismiss) {
       if (e.key !== "Tab") return;
       // Two focusables in the modal — close (×) and Got it. Cycle
       // between them so focus can't escape into the page behind.
+      // Also wrap when the active element is outside the modal:
+      // matches the safety-net behavior of the settings panel
+      // trapTab (see above) — if something programmatic or a
+      // browser-UI quirk moves focus outside, pull it back to the
+      // dialog rather than letting Tab walk into the page.
       const first = introClose;
       const last  = introDismiss;
       const active = document.activeElement;
-      if (e.shiftKey && active === first) {
+      const inside = introOverlay.contains(active);
+      if (e.shiftKey && (active === first || !inside)) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && active === last) {
+      } else if (!e.shiftKey && (active === last || !inside)) {
         e.preventDefault();
         first.focus();
       }
     };
+    // focusin safety net for the uncommon case where something
+    // other than Tab moves focus outside the dialog (programmatic
+    // focus() call, screen-reader navigation, etc.). Mirrors the
+    // settings panel's trapFocus.
+    const onIntroFocusIn = (e) => {
+      if (introOverlay.hidden) return;
+      if (introOverlay.contains(e.target)) return;
+      introDismiss.focus();
+    };
     const dismiss = () => {
       introOverlay.hidden = true;
       document.removeEventListener("keydown", onIntroKey);
+      document.removeEventListener("focusin", onIntroFocusIn);
       try { localStorage.setItem(PRESET_INTRO_SEEN_KEY, "1"); } catch (_) {}
       if (introPreviousFocus && typeof introPreviousFocus.focus === "function") {
         introPreviousFocus.focus();
       }
     };
     document.addEventListener("keydown", onIntroKey);
+    document.addEventListener("focusin", onIntroFocusIn);
     introClose.addEventListener("click", dismiss);
     introDismiss.addEventListener("click", dismiss);
     // Click-outside on backdrop also dismisses.
