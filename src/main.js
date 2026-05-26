@@ -155,6 +155,7 @@ let sunGroup = null;
 let sunLine = null;
 let equatorLine = null;
 let sunTrace = null;
+let subsolarTrace = null;
 const SUN_DISTANCE = 60;
 // 24-hour window for the sun-path trace (matches the hour-scrubber
 // range of ±12h). Sampled at this many segments — declination drift
@@ -234,6 +235,12 @@ const SUN_TRACE_HALF_MS = 12 * 3600 * 1000;
   // effective time.
   sunTrace = makeSunTrace();
   scene.add(sunTrace);
+
+  // Same 24h path but projected onto Earth's surface — traces the
+  // subsolar point (where the sun is directly overhead) as the
+  // scrubber moves. Sits just above the texture like the equator.
+  subsolarTrace = makeSubsolarTrace();
+  earthGroup.add(subsolarTrace);
 
   // Seed sun-driven objects (shader sunDir uniform, sunGroup position,
   // sunLine endpoints, sun-trace positions) once before the first
@@ -407,6 +414,26 @@ function makeSunTrace() {
   const line = new Line2(geo, mat);
   line.frustumCulled = false;
   line.renderOrder = 1;
+  return line;
+}
+
+function makeSubsolarTrace() {
+  // Same 24h path the sun-trace draws, but at Earth's surface — the
+  // subsolar point's track. Lifted to 1.014 to match the equator and
+  // depthTest off so the back-of-Earth half reads through.
+  const geo = new LineGeometry();
+  geo.setPositions(new Array((SUN_TRACE_SEGMENTS + 1) * 3).fill(0));
+  const mat = new LineMaterial({
+    color: 0xffd966,
+    linewidth: 2.0,
+    transparent: true,
+    opacity: 0.9,
+    depthTest: false,
+    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+  });
+  const line = new Line2(geo, mat);
+  line.frustumCulled = false;
+  line.renderOrder = 2;
   return line;
 }
 
@@ -652,17 +679,29 @@ function updateSunUniforms(date) {
       sunDir[2] * SUN_DISTANCE,
     ]);
   }
-  if (sunTrace) {
-    const positions = new Array((SUN_TRACE_SEGMENTS + 1) * 3);
+  if (sunTrace || subsolarTrace) {
+    // Sample sunPosition once per step, scale into both the far
+    // sun-distance trace and the on-Earth subsolar trace.
+    const SURFACE_R = 1.014;
+    const farPositions = sunTrace ? new Array((SUN_TRACE_SEGMENTS + 1) * 3) : null;
+    const surfPositions = subsolarTrace ? new Array((SUN_TRACE_SEGMENTS + 1) * 3) : null;
     const t0 = date.getTime() - SUN_TRACE_HALF_MS;
     const step = (2 * SUN_TRACE_HALF_MS) / SUN_TRACE_SEGMENTS;
     for (let i = 0; i <= SUN_TRACE_SEGMENTS; i++) {
       const { sunDir: d } = sunPosition(new Date(t0 + i * step));
-      positions[i * 3 + 0] = d[0] * SUN_DISTANCE;
-      positions[i * 3 + 1] = d[1] * SUN_DISTANCE;
-      positions[i * 3 + 2] = d[2] * SUN_DISTANCE;
+      if (farPositions) {
+        farPositions[i * 3 + 0] = d[0] * SUN_DISTANCE;
+        farPositions[i * 3 + 1] = d[1] * SUN_DISTANCE;
+        farPositions[i * 3 + 2] = d[2] * SUN_DISTANCE;
+      }
+      if (surfPositions) {
+        surfPositions[i * 3 + 0] = d[0] * SURFACE_R;
+        surfPositions[i * 3 + 1] = d[1] * SURFACE_R;
+        surfPositions[i * 3 + 2] = d[2] * SURFACE_R;
+      }
     }
-    sunTrace.geometry.setPositions(positions);
+    if (sunTrace) sunTrace.geometry.setPositions(farPositions);
+    if (subsolarTrace) subsolarTrace.geometry.setPositions(surfPositions);
   }
 }
 
@@ -881,6 +920,7 @@ window.addEventListener("resize", () => {
   if (sunLine) sunLine.material.resolution.set(window.innerWidth, window.innerHeight);
   if (equatorLine) equatorLine.material.resolution.set(window.innerWidth, window.innerHeight);
   if (sunTrace) sunTrace.material.resolution.set(window.innerWidth, window.innerHeight);
+  if (subsolarTrace) subsolarTrace.material.resolution.set(window.innerWidth, window.innerHeight);
   markDirty();
 });
 
