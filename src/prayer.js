@@ -415,7 +415,15 @@ function walkBackForValidDay(latDeg, lonDeg, date) {
 }
 
 function findRecentValidDate(latDeg, lonDeg, date) {
-  const key = `${latDeg.toFixed(1)}:${lonDeg.toFixed(1)}:${dayKey(date)}`;
+  // Preset is part of the cache key because walkBackForValidDay's
+  // schedule depends on the Fajr/Maghrib/Isha angles (16°/4°/14° vs
+  // 17.7°/4.5°/14°): a date that yields a chronologically-valid
+  // schedule under Leva Qom can fail under Tehran (or vice versa)
+  // because the deeper Fajr angle takes longer to clear inside the
+  // Fajr cap. Keying only on lat/lon/day would return stale results
+  // after a preset switch and silently ignore the user's choice in
+  // high-latitude aqrab_al_awqat mode.
+  const key = `${getPreset()}:${latDeg.toFixed(1)}:${lonDeg.toFixed(1)}:${dayKey(date)}`;
   if (_awqatCache.has(key)) {
     // Refresh insertion order for LRU semantics.
     const v = _awqatCache.get(key);

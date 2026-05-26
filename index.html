@@ -153,12 +153,12 @@
         <p>Inside the cap each pixel of the globe is shaded with the prayer color of its <em>same-longitude</em> projection point &mdash; the nearest valid latitude on the same longitude &mdash; so the caps continue the prayer bands smoothly across the threshold rather than dropping out. This visualization is method-agnostic: the colored bands inside the cap always reflect the same-longitude projection regardless of which high-latitude method drives the side panel.</p>
         <p>The side panel's schedule, by contrast, follows the method you've selected via the <strong>settings gear</strong> in the top-right. Six methods are available:</p>
         <ul class="how-to">
-          <li><strong>Aqrab al-bil&#x101;d &mdash; same longitude</strong> (default): the schedule of the same-longitude projection point. Teal pin/arc on the globe marks the projection.</li>
-          <li><strong>Aqrab al-bil&#x101;d &mdash; nearest city</strong>: snaps to the nearest populated city within &plusmn;5&deg; longitude. The pin moves to the city &mdash; that's where the schedule came from.</li>
+          <li><strong>Aqrab al-bil&#x101;d &mdash; same longitude</strong>: the schedule of the same-longitude projection point. Teal pin/arc on the globe marks the projection.</li>
+          <li><strong>Aqrab al-bil&#x101;d &mdash; nearest city</strong> (default): snaps to the nearest populated city within &plusmn;5&deg; longitude. The pin moves to the city &mdash; that's where the schedule came from. Matches Sistani &sect;2032 verbatim (&#x201c;the closest city that has night and day in a twenty-four hour period&#x201d;).</li>
           <li><strong>Aqrab al-awq&#x101;t</strong>: walks backward day-by-day from today until a date when the sun reached all five thresholds at your exact location.</li>
-          <li><strong>Ni&#x1e63;f al-layl</strong> (middle of night): Isha at the midpoint of (Maghrib, next sunrise); Fajr from that midpoint.</li>
-          <li><strong>Sub'iyya</strong> (one-seventh): Isha at 1/7 of the night past Maghrib; Fajr at 1/7 before sunrise.</li>
-          <li><strong>Angle-based with seasonal reduction</strong>: standard &minus;16&deg;/&minus;14&deg; when reachable; otherwise eased toward the horizon.</li>
+          <li><strong>Ni&#x1e63;f al-layl</strong> (middle of night): Isha at the midpoint of (Maghrib, next Fajr); Fajr from the preceding night's midpoint. When Fajr is physically unreachable at this latitude/date, falls back to next sunrise &mdash; the panel notes the substitution.</li>
+          <li><strong>Sub'iyya</strong> (one-seventh): Isha at 1/7 of the night past Maghrib; Fajr at 1/7 before end-of-night. Same Fajr / sunrise-fallback anchoring as ni&#x1e63;f al-layl.</li>
+          <li><strong>Angle-based with seasonal reduction</strong>: standard &minus;16&deg;/&minus;14&deg; when reachable; otherwise eased toward the horizon. Falls back to ni&#x1e63;f al-layl in polar-day / ordering edge cases.</li>
         </ul>
         <p>For methods 3&ndash;6 (aqrab al-awq&#x101;t and the three non-aqrab rulings) the teal pin is hidden &mdash; the schedule has no spatial projection point to mark &mdash; and the cap visualization on the globe is informational geometry only, distinct from the panel's times. The panel's descriptor line names the schedule source for each method.</p>
         <p><em>Aqrab al-Bil&#x101;d</em> is a widely-accepted Shia position; the specifics of how "nearest locality" is determined vary between mar&#x101;ji'.</p>

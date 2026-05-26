@@ -11,9 +11,13 @@ export const PRESETS = Object.freeze({
 
 export const PRESET_ORDER = [PRESETS.JAFARI, PRESETS.TEHRAN];
 
-// Display metadata. Angles are advisory (the actual parameters come from
-// adhan.CalculationMethod.Jafari() / Tehran() in prayer.js); list them
-// here so the UI can show them without importing adhan.
+// Display metadata. Angles are advisory; the actual adhan parameters
+// are constructed by paramsForPreset() in src/prayer.js — built via
+// CalculationMethod.Tehran() for the Tehran preset and via
+// CalculationMethod.Other() with explicit 16°/4°/14° for the Leva
+// Qom preset (adhan 4.4.3 does not expose a Jafari() factory; see
+// METHODS.md). Listing the angles here so the UI can show them
+// without importing adhan.
 export const PRESET_META = Object.freeze({
   [PRESETS.JAFARI]: Object.freeze({
     id: PRESETS.JAFARI,

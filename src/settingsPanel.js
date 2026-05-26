@@ -273,10 +273,41 @@ if (introOverlay && introClose && introDismiss) {
   try { seen = localStorage.getItem(PRESET_INTRO_SEEN_KEY) === "1"; } catch (_) {}
   if (!seen) {
     introOverlay.hidden = false;
+    // Save the element that had focus when the modal opened so we can
+    // restore it on dismiss (aria-modal expectation). On first page
+    // load this is usually document.body; on programmatic show it's
+    // whichever element triggered it.
+    const introPreviousFocus = document.activeElement;
+    // Move focus to the primary dismiss button so keyboard users have
+    // an obvious target and the Tab cycle has somewhere to start.
+    // RAF defers past the layout commit so focus() doesn't fight a
+    // pending hidden→shown transition.
+    requestAnimationFrame(() => introDismiss.focus());
+    const onIntroKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); dismiss(); return; }
+      if (e.key !== "Tab") return;
+      // Two focusables in the modal — close (×) and Got it. Cycle
+      // between them so focus can't escape into the page behind.
+      const first = introClose;
+      const last  = introDismiss;
+      const active = document.activeElement;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     const dismiss = () => {
       introOverlay.hidden = true;
+      document.removeEventListener("keydown", onIntroKey);
       try { localStorage.setItem(PRESET_INTRO_SEEN_KEY, "1"); } catch (_) {}
+      if (introPreviousFocus && typeof introPreviousFocus.focus === "function") {
+        introPreviousFocus.focus();
+      }
     };
+    document.addEventListener("keydown", onIntroKey);
     introClose.addEventListener("click", dismiss);
     introDismiss.addEventListener("click", dismiss);
     // Click-outside on backdrop also dismisses.
