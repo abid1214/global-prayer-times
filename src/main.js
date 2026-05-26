@@ -282,8 +282,11 @@ const _traceDate = new Date();
   // paint. Without this, updateSunUniforms only fires on the
   // throttled 500ms tick — on a cache-warm load the first frame can
   // render with placeholder geometry and a flash of the wrong
-  // lighting.
+  // lighting. updateSunUniforms only marks _tracesDirty; resample
+  // explicitly here so the first frame doesn't show placeholders.
   updateSunUniforms(effectiveNow());
+  resampleTraces();
+  _tracesDirty = false;
 
   initToggles();
   initScrubber();
@@ -703,40 +706,52 @@ function updateSunUniforms(date) {
     ]);
   }
   if (sunTrace || subsolarTrace) {
-    // Anchor the 24h window to a stable reference rather than the
-    // scrubbed date, so the user sees the sun marker SLIDE along a
-    // fixed trace as they drag the hour scrubber instead of the
-    // trace shifting with the marker. In day mode the user is
-    // moving through the year by full days — anchor to the scrubbed
-    // date so the orange ring migrates between the tropics as
-    // declination changes.
-    const center = scrubMode === "h" ? Date.now() : date.getTime();
-    const t0 = center - SUN_TRACE_HALF_MS;
-    const step = (2 * SUN_TRACE_HALF_MS) / SUN_TRACE_SEGMENTS;
-    // Reuse FAR_TRACE_BUF / SURF_TRACE_BUF / _traceDate to avoid
-    // per-tick allocations during scrubber drags.
-    for (let i = 0; i <= SUN_TRACE_SEGMENTS; i++) {
-      _traceDate.setTime(t0 + i * step);
-      const { sunDir: d } = sunPosition(_traceDate);
-      const idx = i * 3;
-      if (sunTrace) {
-        FAR_TRACE_BUF[idx + 0] = d[0] * SUN_DISTANCE;
-        FAR_TRACE_BUF[idx + 1] = d[1] * SUN_DISTANCE;
-        FAR_TRACE_BUF[idx + 2] = d[2] * SUN_DISTANCE;
-      }
-      if (subsolarTrace) {
-        SURF_TRACE_BUF[idx + 0] = d[0] * SURFACE_RING_R;
-        SURF_TRACE_BUF[idx + 1] = d[1] * SURFACE_RING_R;
-        SURF_TRACE_BUF[idx + 2] = d[2] * SURFACE_RING_R;
-      }
-    }
-    // LineGeometry.setPositions allocates a fresh Float32Array per
-    // call (size 2 * vertex_count) plus an InstancedInterleavedBuffer
-    // — at scrubber-drag rates that's measurable GC churn. Write the
-    // interleaved start/end buffer in place instead.
-    if (sunTrace) updateTraceInPlace(sunTrace.geometry, FAR_TRACE_BUF);
-    if (subsolarTrace) updateTraceInPlace(subsolarTrace.geometry, SURF_TRACE_BUF);
+    // Mark traces dirty — actual resample is coalesced to one per
+    // animation frame in tick(), so a fast scrubber drag (input
+    // events at 60+ Hz) doesn't run 97 sunPosition() calls each.
+    _tracesDirty = true;
   }
+}
+
+let _tracesDirty = true;
+function resampleTraces() {
+  if (!sunTrace && !subsolarTrace) return;
+  // Anchor the 24h window to a stable reference rather than the
+  // scrubbed date, so the user sees the sun marker SLIDE along a
+  // fixed trace as they drag the hour scrubber instead of the
+  // trace shifting with the marker. In day mode the user is
+  // moving through the year by full days — anchor to the scrubbed
+  // date so the orange ring migrates between the tropics as
+  // declination changes.
+  const center = scrubMode === "h" ? Date.now() : (Date.now() + scrubOffsetMs);
+  const t0 = center - SUN_TRACE_HALF_MS;
+  const step = (2 * SUN_TRACE_HALF_MS) / SUN_TRACE_SEGMENTS;
+  // Reuse FAR_TRACE_BUF / SURF_TRACE_BUF / _traceDate to skip the
+  // JS-array and Date allocations the previous version had per
+  // tick. sunPosition() itself still allocates its result object +
+  // sunDir array per call (~194 short-lived objects per resample);
+  // that's confined to solar.js and out of scope for this loop.
+  for (let i = 0; i <= SUN_TRACE_SEGMENTS; i++) {
+    _traceDate.setTime(t0 + i * step);
+    const { sunDir: d } = sunPosition(_traceDate);
+    const idx = i * 3;
+    if (sunTrace) {
+      FAR_TRACE_BUF[idx + 0] = d[0] * SUN_DISTANCE;
+      FAR_TRACE_BUF[idx + 1] = d[1] * SUN_DISTANCE;
+      FAR_TRACE_BUF[idx + 2] = d[2] * SUN_DISTANCE;
+    }
+    if (subsolarTrace) {
+      SURF_TRACE_BUF[idx + 0] = d[0] * SURFACE_RING_R;
+      SURF_TRACE_BUF[idx + 1] = d[1] * SURFACE_RING_R;
+      SURF_TRACE_BUF[idx + 2] = d[2] * SURFACE_RING_R;
+    }
+  }
+  // LineGeometry.setPositions allocates a fresh Float32Array per
+  // call (size 2 * vertex_count) plus an InstancedInterleavedBuffer
+  // — at scrubber-drag rates that's measurable GC churn. Write the
+  // interleaved start/end buffer in place instead.
+  if (sunTrace) updateTraceInPlace(sunTrace.geometry, FAR_TRACE_BUF);
+  if (subsolarTrace) updateTraceInPlace(subsolarTrace.geometry, SURF_TRACE_BUF);
 }
 
 // Update a LineGeometry's instanceStart/instanceEnd interleaved
@@ -747,14 +762,24 @@ function updateSunUniforms(date) {
 // already has the right length).
 //
 // Reaches into three.js LineSegmentsGeometry internals
-// (attributes.instanceStart.data.array). Guarded with a fallback to
-// the public setPositions API so a future three.js layout change
-// degrades gracefully instead of throwing.
+// (attributes.instanceStart.data.array). The contract we depend on
+// is: both attributes share one interleaved buffer with stride 6
+// (start xyz + end xyz per segment), big enough for the segments
+// we're writing. Anything else (three.js layout refactor, geometry
+// not sized yet) falls back to the public setPositions API.
 function updateTraceInPlace(geometry, vertices) {
   const segments = vertices.length / 3 - 1;
-  const attr = geometry.attributes.instanceStart;
-  const ib = attr && attr.data;
-  if (!ib || !ib.array || ib.array.length < segments * 6) {
+  const startAttr = geometry.attributes.instanceStart;
+  const endAttr = geometry.attributes.instanceEnd;
+  const ib = startAttr && startAttr.data;
+  if (
+    !ib ||
+    !endAttr ||
+    endAttr.data !== ib ||
+    ib.stride !== 6 ||
+    !ib.array ||
+    ib.array.length < segments * 6
+  ) {
     geometry.setPositions(vertices);
     return;
   }
@@ -957,6 +982,13 @@ function start() {
       lastUniformUpdate = t;
       dirty = true;
     }
+    if (_tracesDirty) {
+      // Coalesce rapid updateSunUniforms() calls (scrubber drags
+      // fire input events at 60+ Hz) to one trace resample per frame.
+      resampleTraces();
+      _tracesDirty = false;
+      dirty = true;
+    }
     const moving = controls.update();
     if (moving) {
       lastMotion = t;
@@ -979,9 +1011,10 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight, false);
-  // Line2's pixel width depends on the resolution uniform — without these
-  // updates, both arcs would render with stale widths until the user
-  // selected a new location and the lines were rebuilt.
+  // LineMaterial.resolution must track the drawing-buffer size for
+  // correct pixel-width strokes. refreshLineResolutions covers every
+  // active Line2 overlay (qibla, projection, sun line, equator, both
+  // 24h traces); add new lines to its list when introducing them.
   refreshLineResolutions();
   markDirty();
 });
