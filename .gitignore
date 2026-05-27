@@ -1,0 +1,16 @@
+node_modules/
+www/
+vendor/
+
+# Capacitor-generated native projects — initialize locally with:
+#   npx cap add ios
+#   npx cap add android
+# (Uncomment the next two lines if you want to keep native projects out of git
+#  entirely and re-add them on each fresh clone. Most teams commit them so the
+#  iOS / Android side of the app — Info.plist, build settings, etc. — is
+#  version-controlled.)
+# ios/
+# android/
+
+# macOS noise
+.DS_Store

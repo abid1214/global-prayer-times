@@ -8,6 +8,9 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#05070d" />
   <title>Global Prayer Times</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/icon/apple-touch-icon.png" />
   <link rel="stylesheet" href="./styles.css" />
   <script type="importmap">
   {
@@ -310,5 +313,12 @@
 
   <script type="module" src="./src/main.js"></script>
   <script type="module" src="./src/settingsPanel.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js").catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>

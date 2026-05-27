@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Placeholder app icon. Replace with real artwork before submitting.
+
+  Required output for @capacitor/assets generation:
+    assets/icon/icon-only.png            1024x1024  (square, no transparency)
+    assets/icon/icon-foreground.png      1024x1024  (Android adaptive foreground)
+    assets/icon/icon-background.png      1024x1024  (Android adaptive background)
+    assets/splash.png                    2732x2732  (square, centered art)
+    assets/splash-dark.png               2732x2732  (optional dark variant)
+
+  Then run `npm run assets` to generate every iOS / Android / PWA size.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#1a2747" />
+      <stop offset="100%" stop-color="#05070d" />
+    </radialGradient>
+    <linearGradient id="sweep" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1c2944" stop-opacity="0" />
+      <stop offset="50%" stop-color="#f4c45a" stop-opacity="0.55" />
+      <stop offset="100%" stop-color="#7a3a1e" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)" />
+  <circle cx="512" cy="512" r="320" fill="#0d1a33" stroke="#2a4275" stroke-width="6" />
+  <ellipse cx="512" cy="512" rx="320" ry="80" fill="url(#sweep)" />
+  <path d="M 620 380 a 160 160 0 1 0 0 264 a 130 130 0 1 1 0 -264 z"
+        fill="#f4c45a" />
+</svg>

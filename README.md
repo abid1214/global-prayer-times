@@ -29,6 +29,82 @@ The dependencies (`three`, `three/addons`, `adhan`, `tz-lookup`) are loaded from
 
 To install on a phone as a fullscreen app, open the page in Safari → Share → "Add to Home Screen". The PWA meta tags will launch it without the URL bar.
 
+## Ship to the App Store / Play Store
+
+The app is wrapped with **[Capacitor](https://capacitorjs.com/)**: the same `index.html` + `src/` are bundled into a native iOS and Android shell so the app runs in a WKWebView / WebView with no URL bar, gets a real app icon, and can be submitted to the App Store and Google Play.
+
+### One-time setup
+
+Requirements:
+- **macOS + Xcode 15+** (iOS submission requires a Mac — no way around it)
+- **Android Studio** (any OS) for the Android build
+- **Apple Developer account** ($99/yr) and **Google Play Console** account ($25 one-time)
+- **Node 20+**
+
+```sh
+npm install            # installs Capacitor CLI + platform packages
+npm run vendor         # downloads three / adhan / tz-lookup / earth texture into ./vendor
+npm run build          # assembles ./www (the bundle Capacitor ships)
+npx cap add ios        # creates ./ios — Xcode project (Mac only)
+npx cap add android    # creates ./android — Android Studio project
+```
+
+After that, the dev loop is:
+
+```sh
+npm run cap:sync       # rebuild ./www and push it into ios/ and android/
+npm run cap:open:ios   # open Xcode → Run on simulator or device
+npm run cap:open:android # open Android Studio → Run
+```
+
+### App icons & splash screens
+
+Replace `assets/icon/icon.svg` with real artwork (or drop a 1024x1024 `assets/icon/icon-only.png` directly), then:
+
+```sh
+npm run assets         # uses @capacitor/assets to generate every required size
+```
+
+This populates `ios/App/App/Assets.xcassets/` and `android/app/src/main/res/`, plus the PWA `assets/icon/icon-*.png` files referenced by `manifest.webmanifest`.
+
+### Offline support
+
+`sw.js` registers a service worker that caches the app shell + vendored JS + earth texture, so the web/PWA version works after first load with no network. Inside the Capacitor native shell, this is automatic — all files are served from the local bundle. Geocoding (city search) still requires network in both cases; that's intentional.
+
+### Submitting to the App Store (iOS)
+
+1. In Xcode, set **Signing & Capabilities → Team** to your Apple Developer team, and bump **Version** / **Build** as you iterate.
+2. In `capacitor.config.json`, the `appId` is `com.abidkhan.globalprayertimes` — change it before first submission if you want a different bundle ID (it's permanent once registered in App Store Connect).
+3. Register the bundle ID in [App Store Connect](https://appstoreconnect.apple.com/) → create a new app entry → fill out metadata (description, screenshots at 6.7" and 6.5", privacy details).
+4. **Privacy disclosures** the review team will ask about for this app:
+   - **Location**: only if you add geolocation later. Currently the user taps a point — no `Info.plist` `NSLocationWhenInUseUsageDescription` needed.
+   - **Network**: declare use of `nominatim.openstreetmap.org` for geocoding.
+5. Apple's guideline **4.2 (Minimum Functionality)** historically rejects pure web-wrappers. The offline service worker, native icon/splash, and the per-pixel GLSL prayer-window shader (genuine on-device computation, not a website redrawn) are the differentiators to cite in the reviewer notes if asked.
+6. In Xcode: **Product → Archive → Distribute App → App Store Connect**. The build appears in App Store Connect within ~30 minutes. Submit for review; first review typically takes 24–48 hours.
+
+### Submitting to Google Play (Android)
+
+1. In Android Studio: **Build → Generate Signed Bundle / APK → Android App Bundle (.aab)**. Generate a keystore the first time (back it up — you cannot rotate it).
+2. In [Play Console](https://play.google.com/console/), create a new app → upload the `.aab` to the internal testing track first.
+3. Fill out the **content rating questionnaire** (this app: no user-generated content, no ads, no sensitive permissions — Everyone rating).
+4. Data safety form: declare network usage for geocoding, no data collection otherwise.
+5. Promote from internal testing → production once you've tested on a couple of real devices.
+
+### File layout this adds
+
+```
+package.json                  — Capacitor dependencies + npm scripts
+capacitor.config.json         — appId, appName, webDir
+manifest.webmanifest          — PWA manifest (linked from index.html)
+sw.js                         — service worker (offline caching)
+scripts/fetch-vendor.mjs      — downloads CDN deps into ./vendor
+scripts/build-www.mjs         — assembles ./www and rewrites importmap to local paths
+assets/icon/icon.svg          — placeholder source icon (replace with real artwork)
+.gitignore                    — ignores node_modules, www, vendor (regenerable)
+```
+
+The source `index.html` at the repo root still uses CDN URLs — the existing `python3 -m http.server` dev workflow is unchanged. Only the assembled `www/` (and the iOS/Android bundles built from it) reference local vendored copies.
+
 ## Tech stack
 
 - **[Three.js](https://threejs.org/)** for the 3D globe (sphere geometry, custom quaternion-based GlobeControls in `src/globeControls.js`, Line2 for the thick qibla arc).
@@ -114,6 +190,14 @@ src/
 tests/
   classifierAgreement.html  — open in browser; asserts classifier agreement for methods 1 and 2 (aqrab same-longitude + nearest-city)
   classifierAgreement.test.js
+manifest.webmanifest      — PWA manifest (icons, theme, scope)
+sw.js                     — service worker (offline caching of app shell + vendor)
+capacitor.config.json     — Capacitor wrapper config (appId, webDir)
+package.json              — Capacitor deps + build/cap:sync scripts
+scripts/
+  fetch-vendor.mjs        — downloads CDN deps into ./vendor for offline bundling
+  build-www.mjs           — assembles ./www, rewriting importmap to local paths
+assets/icon/icon.svg      — placeholder source icon (replace before submitting)
 ```
 
 ## Known limitations

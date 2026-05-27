@@ -1,0 +1,27 @@
+{
+  "name": "global-prayer-times",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real-time interactive 3D globe of Shia (Ja'fari) prayer windows worldwide.",
+  "type": "module",
+  "scripts": {
+    "dev": "python3 -m http.server 8000",
+    "vendor": "node scripts/fetch-vendor.mjs",
+    "build": "node scripts/build-www.mjs",
+    "assets": "capacitor-assets generate --iconBackgroundColor '#05070d' --splashBackgroundColor '#05070d'",
+    "cap:add:ios": "cap add ios",
+    "cap:add:android": "cap add android",
+    "cap:sync": "npm run build && cap sync",
+    "cap:open:ios": "cap open ios",
+    "cap:open:android": "cap open android"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^6.1.2"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6.1.2"
+  }
+}
