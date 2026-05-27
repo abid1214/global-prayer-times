@@ -9,10 +9,8 @@
     "vendor": "node scripts/fetch-vendor.mjs",
     "build": "node scripts/build-www.mjs",
     "assets": "capacitor-assets generate --iconBackgroundColor '#05070d' --splashBackgroundColor '#05070d'",
-    "cap:add:ios": "cap add ios",
     "cap:add:android": "cap add android",
     "cap:sync": "npm run build && cap sync",
-    "cap:open:ios": "cap open ios",
     "cap:open:android": "cap open android"
   },
   "devDependencies": {

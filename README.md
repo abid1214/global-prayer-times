@@ -36,25 +36,31 @@ The app is wrapped with **[Capacitor](https://capacitorjs.com/)**: the same `ind
 ### One-time setup
 
 Requirements:
-- **macOS + Xcode 15+** (iOS submission requires a Mac — no way around it)
+- **Node 20+**
 - **Android Studio** (any OS) for the Android build
 - **Apple Developer account** ($99/yr) and **Google Play Console** account ($25 one-time)
-- **Node 20+**
+- **No Mac needed** — iOS builds run on a GitHub-hosted macOS runner via `.github/workflows/ios-release.yml`. See [docs/IOS_RELEASE_SETUP.md](docs/IOS_RELEASE_SETUP.md) for the one-time signing-cert / API-key setup.
 
 ```sh
 npm install            # installs Capacitor CLI + platform packages
 npm run vendor         # downloads three / adhan / tz-lookup / earth texture into ./vendor
 npm run build          # assembles ./www (the bundle Capacitor ships)
-npx cap add ios        # creates ./ios — Xcode project (Mac only)
-npx cap add android    # creates ./android — Android Studio project
+npx cap add android    # creates ./android — Android Studio project (skip if you only want iOS)
 ```
 
-After that, the dev loop is:
+For Android, the dev loop is:
 
 ```sh
-npm run cap:sync       # rebuild ./www and push it into ios/ and android/
-npm run cap:open:ios   # open Xcode → Run on simulator or device
+npm run cap:sync       # rebuild ./www and push it into android/
 npm run cap:open:android # open Android Studio → Run
+```
+
+For iOS, you cut a release tag and GitHub Actions does the rest:
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+# → workflow builds + signs + uploads to TestFlight (~10 min)
 ```
 
 ### App icons & splash screens
@@ -71,16 +77,20 @@ This populates `ios/App/App/Assets.xcassets/` and `android/app/src/main/res/`, p
 
 `sw.js` registers a service worker that caches the app shell + vendored JS + earth texture, so the web/PWA version works after first load with no network. Inside the Capacitor native shell, this is automatic — all files are served from the local bundle. Geocoding (city search) still requires network in both cases; that's intentional.
 
-### Submitting to the App Store (iOS)
+### Submitting to the App Store (iOS, no Mac)
 
-1. In Xcode, set **Signing & Capabilities → Team** to your Apple Developer team, and bump **Version** / **Build** as you iterate.
-2. In `capacitor.config.json`, the `appId` is `com.abidkhan.globalprayertimes` — change it before first submission if you want a different bundle ID (it's permanent once registered in App Store Connect).
-3. Register the bundle ID in [App Store Connect](https://appstoreconnect.apple.com/) → create a new app entry → fill out metadata (description, screenshots at 6.7" and 6.5", privacy details).
-4. **Privacy disclosures** the review team will ask about for this app:
-   - **Location**: only if you add geolocation later. Currently the user taps a point — no `Info.plist` `NSLocationWhenInUseUsageDescription` needed.
-   - **Network**: declare use of `nominatim.openstreetmap.org` for geocoding.
-5. Apple's guideline **4.2 (Minimum Functionality)** historically rejects pure web-wrappers. The offline service worker, native icon/splash, and the per-pixel GLSL prayer-window shader (genuine on-device computation, not a website redrawn) are the differentiators to cite in the reviewer notes if asked.
-6. In Xcode: **Product → Archive → Distribute App → App Store Connect**. The build appears in App Store Connect within ~30 minutes. Submit for review; first review typically takes 24–48 hours.
+Full step-by-step in [docs/IOS_RELEASE_SETUP.md](docs/IOS_RELEASE_SETUP.md). High level:
+
+1. Enroll in Apple Developer ($99/yr) and create the app entry in [App Store Connect](https://appstoreconnect.apple.com/) — both done from a web browser, no Mac needed.
+2. Create an App Store Connect API key (lets CI authenticate without 2FA) and a private GitHub repo to hold the signing certificate.
+3. Run `fastlane match appstore` once from Linux/Windows to generate the cert + provisioning profile and push them to the certs repo.
+4. Add the API key + match credentials as secrets to this GitHub repo.
+5. `git tag v1.0.0 && git push origin v1.0.0` — `.github/workflows/ios-release.yml` builds + signs + uploads to TestFlight.
+6. From App Store Connect's web UI, fill in metadata (description, screenshots at 6.7" and 6.5", privacy), select the TestFlight build, and submit for review.
+
+**Guideline 4.2 (Minimum Functionality)**: Apple historically rejects pure web-wrappers. The offline service worker, native icon/splash, and the per-pixel GLSL prayer-window shader (genuine on-device computation, not a website redrawn) are the differentiators to cite in the reviewer notes — the IOS_RELEASE_SETUP doc has suggested wording.
+
+**Privacy disclosures**: Network use of `nominatim.openstreetmap.org` for geocoding. No location services (the user taps a point — no `NSLocationWhenInUseUsageDescription` needed unless you add geolocation later). No data collection.
 
 ### Submitting to Google Play (Android)
 
@@ -100,7 +110,11 @@ sw.js                         — service worker (offline caching)
 scripts/fetch-vendor.mjs      — downloads CDN deps into ./vendor
 scripts/build-www.mjs         — assembles ./www and rewrites importmap to local paths
 assets/icon/icon.svg          — placeholder source icon (replace with real artwork)
-.gitignore                    — ignores node_modules, www, vendor (regenerable)
+.github/workflows/ios-release.yml — macOS GitHub Actions runner: build → sign → TestFlight
+fastlane/Fastfile             — fastlane lane that match-signs and uploads via App Store Connect API
+fastlane/{Appfile,Matchfile,Gemfile} — fastlane config
+docs/IOS_RELEASE_SETUP.md     — one-time signing-cert / API-key setup (do this from Linux)
+.gitignore                    — ignores node_modules, www, vendor, fastlane/build (regenerable)
 ```
 
 The source `index.html` at the repo root still uses CDN URLs — the existing `python3 -m http.server` dev workflow is unchanged. Only the assembled `www/` (and the iOS/Android bundles built from it) reference local vendored copies.

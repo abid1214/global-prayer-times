@@ -1,0 +1,108 @@
+name: iOS Release (TestFlight)
+
+# Triggered by pushing a version tag like `v1.0.0`. The job rents a macOS
+# runner from GitHub, builds the iOS bundle, signs it with the cert pulled
+# down by fastlane match, and uploads it to TestFlight. Once it lands in
+# TestFlight you submit for App Store review from the App Store Connect
+# web UI (or extend this workflow with a `deliver` step later).
+#
+# Manual trigger (workflow_dispatch) is also wired up so you can fire a
+# build from the Actions tab without cutting a tag.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Marketing version (e.g. 1.0.0). Defaults to the git tag if pushed.'
+        required: false
+
+jobs:
+  testflight:
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    env:
+      # App Store Connect API key — preferred over Apple ID + password since
+      # it bypasses 2FA entirely. Created at
+      # https://appstoreconnect.apple.com/access/api → "Keys" tab.
+      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+
+      # fastlane match — encrypted-certs-in-a-private-repo. Run
+      # `fastlane match appstore` once locally (works from Linux) to seed
+      # the certs repo; CI runs in read-only mode.
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+
+      # Apple Developer team ID — found at https://developer.apple.com/account
+      # under Membership Details. Used by Capacitor's generated Xcode project
+      # for code signing.
+      DEVELOPER_TEAM_ID: ${{ secrets.DEVELOPER_TEAM_ID }}
+
+      FASTLANE_SKIP_UPDATE_CHECK: '1'
+      FASTLANE_HIDE_CHANGELOG: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: fastlane
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Vendor CDN deps
+        run: npm run vendor
+
+      - name: Build www/
+        run: npm run build
+
+      - name: Add iOS platform
+        run: npx cap add ios
+
+      - name: Configure signing team
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM ${DEVELOPER_TEAM_ID}" ios/App/App.xcodeproj/project.pbxproj 2>/dev/null || true
+          # Capacitor's template uses xcconfig; this is the reliable path:
+          echo "DEVELOPMENT_TEAM = ${DEVELOPER_TEAM_ID}" >> ios/App/App.xcconfig
+
+      - name: Sync Capacitor
+        run: npx cap sync ios
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # Strip leading "v" from tag (v1.2.3 → 1.2.3)
+            TAG="${GITHUB_REF_NAME#v}"
+            echo "version=${TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fastlane → TestFlight
+        working-directory: fastlane
+        run: bundle exec fastlane ios beta version:${{ steps.ver.outputs.version }}
+
+      - name: Upload IPA artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipa
+          path: |
+            fastlane/build/*.ipa
+            fastlane/build/*.app.dSYM.zip
+          if-no-files-found: ignore

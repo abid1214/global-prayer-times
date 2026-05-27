@@ -1,0 +1,2 @@
+app_identifier(ENV["APP_IDENTIFIER"] || "com.abidkhan.globalprayertimes")
+team_id(ENV["DEVELOPER_TEAM_ID"]) if ENV["DEVELOPER_TEAM_ID"]
