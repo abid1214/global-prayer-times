@@ -257,7 +257,7 @@ function handleTimeChange() {
 
   sunView = createSunView({
     earthMaterial, sunGroup, sunLine, sunTrace, subsolarTrace,
-    getScrub: () => ({ mode: scrubber.getMode(), offsetMs: scrubber.getOffsetMs() }),
+    getDateOffsetMs: () => scrubber.getDateOffsetMs(),
     markDirty,
   });
   selection = createLocationSelection({

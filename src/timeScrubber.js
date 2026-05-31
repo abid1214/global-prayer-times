@@ -1,19 +1,36 @@
 // Time scrubber: owns scrub state + slider/live/mode controls. Scene-agnostic —
-// fires onChange(); the caller reads effectiveNow()/isLive()/getMode()/
-// getOffsetMs(). Modes: "h" = ±12h step 5min; "d" = ±366d step 1day.
+// fires onChange(); the caller reads effectiveNow()/isLive()/getDateOffsetMs().
+// "h" scrubs the intra-day time (±12h), "d" scrubs the date (±183d); both
+// offsets persist across mode toggles. The date axis counts whole calendar days
+// (not fixed 24h) so the local time readout holds steady across DST changes.
+// Range is ±183d — declination repeats annually, so every day stays reachable
+// while the narrow slider keeps ~1 day/pixel instead of snapping between days.
 const SCRUB_MODES = {
-  h: { min: -720, max: 720, step: 5, msPerUnit: 60_000 },
-  d: { min: -366, max: 366, step: 1, msPerUnit: 86_400_000 },
+  h: { min: -720, max: 720, step: 5 }, // slider units = minutes
+  d: { min: -183, max: 183, step: 1 }, // slider units = whole calendar days
 };
+const MS_PER_MIN = 60_000;
+
+function shiftCalendarDays(ms, days) {
+  const d = new Date(ms);
+  d.setDate(d.getDate() + days);
+  return d.getTime();
+}
 
 export function createTimeScrubber({ onChange }) {
-  let scrubOffsetMs = 0;
-  let scrubLive = true;
+  let dayOffset = 0;    // whole calendar days, driven by "d" mode
+  let timeOffsetMs = 0; // intra-day ms offset, driven by "h" mode
   let scrubMode = "h";
-  // Set by init(); the render tick calls it so the date label tracks the wall clock.
+  // Set by init(); the render tick calls it so the live label tracks the wall clock.
   let refreshScrubLabel = () => {};
 
-  const effectiveNow = () => new Date(Date.now() + scrubOffsetMs);
+  const isLive = () => dayOffset === 0 && timeOffsetMs === 0;
+  const effectiveNow = () => new Date(shiftCalendarDays(Date.now(), dayOffset) + timeOffsetMs);
+  // Date-axis delta only (no intra-day offset); anchors the sun-path ring to the scrubbed date.
+  function dateOffsetMs() {
+    const now = Date.now();
+    return shiftCalendarDays(now, dayOffset) - now;
+  }
 
   function init() {
     const slider = document.getElementById("scrub");
@@ -21,81 +38,73 @@ export function createTimeScrubber({ onChange }) {
     const label = document.getElementById("scrubLabel");
     const modeBtn = document.getElementById("scrubMode");
 
-    function fmtTimeOffset(ms) {
-      if (Math.abs(ms) < 30 * 1000) return "now";
-      const sign = ms >= 0 ? "+" : "−";
-      const abs = Math.abs(ms);
-      const h = Math.floor(abs / 3600000);
-      const m = Math.round((abs - h * 3600000) / 60000);
-      if (h === 0) return `${sign}${m}m`;
-      return `${sign}${h}h ${String(m).padStart(2, "0")}m`;
-    }
+    // Two child spans (time over date); textContent only — no innerHTML.
+    const timeEl = document.createElement("span");
+    timeEl.className = "scrubTime";
+    const dateEl = document.createElement("span");
+    dateEl.className = "scrubDate";
+    label.replaceChildren(timeEl, dateEl);
 
-    const dateFmt = new Intl.DateTimeFormat([], { month: "short", day: "numeric" });
-    function fmtDateOffset(ms) {
-      if (Math.abs(ms) < 86_400_000 / 2) return "today";
-      return dateFmt.format(new Date(Date.now() + ms));
-    }
-
+    const timeFmt = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    const dateFmt = new Intl.DateTimeFormat([], { weekday: "short", month: "short", day: "numeric" });
     function refreshLabel() {
-      label.textContent = scrubMode === "h" ? fmtTimeOffset(scrubOffsetMs) : fmtDateOffset(scrubOffsetMs);
+      const at = effectiveNow();
+      timeEl.textContent = timeFmt.format(at);
+      dateEl.textContent = dateFmt.format(at);
     }
     refreshScrubLabel = refreshLabel;
 
-    function applyMode() {
+    // Point the slider at the active mode's offset without disturbing either one.
+    function syncSliderToMode() {
       const cfg = SCRUB_MODES[scrubMode];
       slider.min = String(cfg.min);
       slider.max = String(cfg.max);
       slider.step = String(cfg.step);
-      slider.value = "0";
-      scrubOffsetMs = 0;
-      scrubLive = true;
-      live.classList.add("active");
-      modeBtn.textContent = scrubMode;
-      modeBtn.classList.toggle("date-mode", scrubMode === "d");
-      modeBtn.title = scrubMode === "h" ? "Switch to date scrubbing" : "Switch to time scrubbing";
-      modeBtn.setAttribute("aria-pressed", scrubMode === "d" ? "true" : "false");
-      refreshLabel();
-      onChange();
+      slider.value = String(scrubMode === "h" ? Math.round(timeOffsetMs / MS_PER_MIN) : dayOffset);
     }
 
     modeBtn.addEventListener("click", () => {
       scrubMode = scrubMode === "h" ? "d" : "h";
-      applyMode();
+      modeBtn.textContent = scrubMode;
+      modeBtn.classList.toggle("date-mode", scrubMode === "d");
+      modeBtn.title = scrubMode === "h" ? "Switch to date scrubbing" : "Switch to time scrubbing";
+      modeBtn.setAttribute("aria-pressed", scrubMode === "d" ? "true" : "false");
+      // Toggle only re-points the slider; both offsets are preserved, so no onChange.
+      syncSliderToMode();
     });
 
     slider.addEventListener("input", () => {
       const units = parseInt(slider.value, 10);
-      scrubOffsetMs = units * SCRUB_MODES[scrubMode].msPerUnit;
-      scrubLive = scrubOffsetMs === 0;
+      if (scrubMode === "h") timeOffsetMs = units * MS_PER_MIN;
+      else dayOffset = units;
       refreshLabel();
-      live.classList.toggle("active", scrubLive);
+      live.classList.toggle("active", isLive());
       onChange();
     });
 
     live.addEventListener("click", () => {
-      slider.value = "0";
-      scrubOffsetMs = 0;
-      scrubLive = true;
+      dayOffset = 0;
+      timeOffsetMs = 0;
+      syncSliderToMode();
       refreshLabel();
       live.classList.add("active");
       onChange();
     });
 
-    // Initial state — mirrors applyMode without resetting scrub state.
+    // Initial paint.
     modeBtn.textContent = scrubMode;
     modeBtn.title = "Switch to date scrubbing";
     modeBtn.setAttribute("aria-pressed", "false");
+    syncSliderToMode();
     refreshLabel();
-    live.classList.add("active");
+    live.classList.toggle("active", isLive());
   }
 
   return {
     init,
     effectiveNow,
-    isLive: () => scrubLive,
-    getMode: () => scrubMode,
-    getOffsetMs: () => scrubOffsetMs,
+    isLive,
+    getDateOffsetMs: dateOffsetMs,
     refreshLabel: () => refreshScrubLabel(),
   };
 }
