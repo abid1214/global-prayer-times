@@ -1,17 +1,13 @@
-// Solar position math — simplified NOAA-style algorithm.
-// Accurate to within ~0.01° for declination and ~30s for the equation of time,
-// which is far more than enough to color a globe.
-//
-// ECEF axis convention used throughout:
-//   +x  -> (lat=0, lon=0)        Greenwich, equator
-//   +y  -> north pole
-//   +z  -> (lat=0, lon=-90°)     90° West (i.e. east is the -z direction)
-//
-// This convention mirrors the more common "+z = 90°E" so that, when three.js
-// places the camera at +x looking at the origin with up=+y, eastern longitudes
-// appear on the right of the screen — matching how a globe is normally drawn.
+// Solar position math — simplified NOAA-style algorithm (~0.01° declination,
+// ~30s equation of time). ECEF axis convention used throughout:
+//   +x → (lat 0, lon 0)      +y → north pole      +z → (lat 0, lon −90°)
+// i.e. east is −z, so a camera at +x (up=+y) shows eastern longitudes on the
+// right, as a globe is normally drawn.
 
-const DEG = Math.PI / 180;
+import {
+  DEG, degToRad,
+  VIS_FAJR_DEG, VIS_MAGHRIB_DEG, VIS_ISHA_DEG, APPARENT_HORIZON_DEG, COS_FLOOR,
+} from "./constants.js";
 
 function julianDay(date) {
   return date.getTime() / 86400000 + 2440587.5;
@@ -52,9 +48,7 @@ export function sunPosition(date) {
 
   return {
     declination: delta,
-    subsolarLat: delta,
     subsolarLon,
-    equationOfTime: eqTime,
     sunDir: latLonToVec3(delta, subsolarLon),
   };
 }
@@ -69,27 +63,13 @@ export function latLonToVec3(latRad, lonRad) {
   ];
 }
 
-// Unit vector → (lat, lon) in radians.
-export function vec3ToLatLon(v) {
-  const lat = Math.asin(Math.max(-1, Math.min(1, v[1])));
-  const lon = Math.atan2(-v[2], v[0]);
-  return { lat, lon };
-}
-
-// Classify which Shia (Ja'fari) prayer window applies at (lat, lon) at `date`.
-// This mirrors the shader logic exactly so the side panel's "Now in"
-// indicator and the globe's coloring always agree, even at high latitudes
-// where Adhan's PrayerTimes can produce a counter-intuitive currentPrayer.
-const FAJR = -16 * DEG;
-const MAGHRIB = -4 * DEG;
-const ISHA = -14 * DEG;
-// Apparent horizon = -50' = -0.833°, matching Adhan.js's sunrise/sunset
-// convention (atmospheric refraction ~34' + solar semi-diameter ~16').
-// Adhan applies this offset ONLY to sunrise/sunset; Fajr (-16°), Maghrib
-// (-4°), Isha (-14°), and Asr are taken at face value (refraction is
-// negligible at those depths). See src/earthMaterial.js for the
-// shader-side mirror.
-const APPARENT_HORIZON = (-50 / 60) * DEG;
+// Which Ja'fari prayer window applies at (lat, lon) at `date`. Mirrors the
+// shader (earthShader.js) so the panel's "Now in" agrees with the globe; the
+// one intentional divergence is the Asr zenithDiff term (see altAsr).
+const FAJR = degToRad(VIS_FAJR_DEG);
+const MAGHRIB = degToRad(VIS_MAGHRIB_DEG);
+const ISHA = degToRad(VIS_ISHA_DEG);
+const APPARENT_HORIZON = degToRad(APPARENT_HORIZON_DEG);
 
 export function classifyPrayer(latRad, lonRad, date) {
   const { sunDir, declination, subsolarLon } = sunPosition(date);
@@ -97,23 +77,13 @@ export function classifyPrayer(latRad, lonRad, date) {
   const sinAlt = sunDir[0] * n[0] + sunDir[1] * n[1] + sunDir[2] * n[2];
   const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
 
-  // Closed-form shar'ī midnight check — mirrors the shader so the panel's
-  // "Now in" indicator stays in lockstep with the globe coloring.
-  // Hp = pixel hour angle in [0, 2π); Hmid = midpoint of the night
-  // between MAGHRIB (alt = -4°, the Ja'fari sunset boundary) and next
-  // dawn (alt = FAJR = -16°). Using Maghrib rather than geometric
-  // sunset is the canonical Ja'fari definition (per Sistani/Khamenei
-  // tawḍīḥ); the rest of the app already takes the Ja'fari -4° reading
-  // for Maghrib, so anchoring midnight to it removes a previously-
-  // silent Sunni-convention regression in this single classifier.
+  // Shar'ī midnight (closed form, mirrors the shader): midpoint of the night
+  // between MAGHRIB (-4°, the Ja'fari sunset boundary) and next dawn (-16°).
   const TWO_PI = 2 * Math.PI;
   const Hp = ((lonRad - subsolarLon) % TWO_PI + TWO_PI) % TWO_PI;
   const cosLat = Math.cos(latRad);
   const cosDec = Math.cos(declination);
-  // 1e-4 floor on cos(φ)·cos(δ) protects acos at the geographic poles
-  // and at the high-lat regime where both terms approach zero. Matches
-  // the shader; do not shrink without testing |φ|, |δ| → 90°.
-  const COS_FLOOR = 1e-4;
+  // COS_FLOOR protects acos at the poles / high-lat where both terms → 0.
   const denom = Math.max(cosLat * cosDec, COS_FLOOR);
   const cosHmag = (Math.sin(MAGHRIB) - Math.sin(latRad) * Math.sin(declination)) / denom;
   const Hmag = Math.acos(Math.max(-1, Math.min(1, cosHmag)));
@@ -122,6 +92,8 @@ export function classifyPrayer(latRad, lonRad, date) {
   const Hmid = Math.PI + (Hmag - Hfajr) / 2;
   const pastMidnight = Hp > Hmid;
 
+  // Asr: |diff| here vs the shader's sqrt(diff²+0.0005) smoothing — the ~0.6°
+  // difference at lat ≈ decl is below the band-edge width the tests check.
   const zenithDiff = Math.min(Math.abs(latRad - declination), 1.4);
   const altAsr = Math.atan(1 / (1 + Math.tan(zenithDiff)));
 
@@ -130,9 +102,7 @@ export function classifyPrayer(latRad, lonRad, date) {
     return alt >= altAsr ? "dhuhr" : "asr";
   }
   if (pastMidnight) {
-    // After shar'ī midnight Isha's waqt has ended. Until the sun reaches
-    // the Fajr angle there is no prayer in its dedicated time.
-    return alt > FAJR ? "fajr" : "none";
+    return alt > FAJR ? "fajr" : "none"; // after midnight, only Fajr has a dedicated waqt
   }
   if (alt > MAGHRIB) return "asr";        // sunset → -4°, Asr's time still extending
   if (alt > ISHA) return "maghrib";

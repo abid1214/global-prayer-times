@@ -32,7 +32,7 @@ To install on a phone as a fullscreen app, open the page in Safari → Share →
 ## Tech stack
 
 - **[Three.js](https://threejs.org/)** for the 3D globe (sphere geometry, custom quaternion-based GlobeControls in `src/globeControls.js`, Line2 for the thick qibla arc).
-- **GLSL fragment shader** (in `src/earthMaterial.js`) that classifies the prayer window per pixel — that's why the bands are smooth and continuous instead of a discretized grid.
+- **GLSL fragment shader** (in `src/earthShader.js`) that classifies the prayer window per pixel — that's why the bands are smooth and continuous instead of a discretized grid.
 - **[Adhan.js](https://github.com/batoulapps/adhan-js)** for prayer time calculations in the side panel.
 - **[tz-lookup](https://github.com/darkskyapp/tz-lookup-oss)** to resolve IANA time zones from coordinates.
 - A simplified NOAA solar algorithm (`src/solar.js`) for declination and subsolar longitude — accurate to ~0.01°.
@@ -71,7 +71,7 @@ Above a sun-relative latitude threshold, the standard altitude-based calculation
 
 | Failure mode | Condition | Why it fails |
 | --- | --- | --- |
-| **Fajr-cap** | <code>\|φ + δ\| > 90° − fajrAngle</code> | Sun never reaches the preset's Fajr threshold. Leva Qom (16°) → cap at 74°; Tehran (17.7°) → cap at 72.3°. The panel's cap geometry tracks the active preset; the shader currently hardcodes the Leva Qom cap (Stage 3.2). |
+| **Fajr-cap** | <code>\|φ + δ\| > 90° − fajrAngle</code> | Sun never reaches the preset's Fajr threshold. Leva Qom (16°) → cap at 74°; Tehran (17.7°) → cap at 72.3°. The panel's cap geometry tracks the active preset; the shader hardcodes the fixed Leva Qom cap. |
 | **Polar-night cap** | <code>\|φ − δ\| > 90.833°</code> | Sun never crosses the apparent horizon (−50′, matches adhan.js). |
 
 Whichever boundary trips first per hemisphere defines the cap edge for that date. The projection target is pulled inward by a 0.05° safety margin to keep adhan.js's `correctedHourAngle` clear of its `cosH = ±1` singularity (see `SAFE_MARGIN_DEG` in `src/prayer.js`).
@@ -91,30 +91,45 @@ Inside the cap, six methods are selectable via the settings gear. The choice per
 
 The colored bands inside the cap **always render via same-longitude projection (method 1's geometry) regardless of the user's choice**. This is deliberate. Per-pixel shader implementations of the other methods would either need data the shader can't carry (a city table in GLSL for method 2), be per-location (method 3's historical date), or require running adhan-equivalent date math per pixel (methods 4–6). Rather than render a method-specific approximation that lies, the shader sticks with same-longitude and the panel's descriptor line surfaces the actual schedule source.
 
-For methods 2–6 the visualization and the panel times therefore *disagree by design*. The panel's descriptor line (e.g., `Method: aqrab al-bilād · times from Murmansk`) is the canonical reading of what the side panel reflects; the cap visualization is informational geometry only. The docblock in `src/earthMaterial.js` and the `classifyByClock` comment in `src/prayer.js` carry the same explanation at the source-code level — a `tests/classifierAgreement.html` fixture asserts the two classifiers agree for methods 1 and 2 (where the shader and panel share semantics) and exercises methods 3–6 without asserting agreement.
+For methods 2–6 the visualization and the panel times therefore *disagree by design*. The panel's descriptor line (e.g., `Method: aqrab al-bilād · times from Murmansk`) is the canonical reading of what the side panel reflects; the cap visualization is informational geometry only. The docblock in `src/earthShader.js` and the `classifyByClock` comment in `src/prayer.js` carry the same explanation at the source-code level — a `tests/classifierAgreement.html` fixture asserts the two classifiers agree for methods 1 and 2 (where the shader and panel share semantics) and exercises methods 3–6 without asserting agreement.
 
 ## Repository layout
 
-```
+```text
 index.html              — single-page entry, CDN importmap, info modal, settings slide-over
 styles.css              — desktop + responsive (≤768, ≤480, pointer:coarse)
+package.json            — no build step; exists only so `npm test` can run the suite in Node
 src/
-  main.js               — three.js scene, render loop, click + search
+  main.js               — three.js scene + render loop; wires the modules below (orchestration)
+  constants.js          — shared math/UI constants: DEG, Mecca, prayer palette, visualization angles
+  sceneObjects.js       — three.js object factories (pins, sun, traces) + shared great-circle arcBuilder
+  sunView.js            — sun uniforms + 24h sun/subsolar trace resampling (createSunView)
+  timeScrubber.js       — time-scrub state + slider/live/mode controls (createTimeScrubber)
+  locationSelection.js  — pin + qibla arc + Aqrab projection viz on location pick (createLocationSelection)
   globeControls.js      — quaternion-based drag/zoom/pinch controls (replaces OrbitControls)
-  earthMaterial.js      — GLSL shader for prayer-window classification + cap derivation
+  earthShader.js        — GLSL source for prayer-window classification (THREE-free; angles from constants.js)
+  earthMaterial.js      — THREE.ShaderMaterial wrapper around earthShader.js
   solar.js              — NOAA solar position math + per-pixel classifier
   prayer.js             — adhan.js wrapper, six high-latitude methods, clock classifier
   panel.js              — bottom-sheet panel, peek bar, drag-to-dismiss, method descriptor
   search.js             — geocoded city autocomplete
-  settings.js           — persisted method choice (localStorage + ?m= URL)
+  settings.js           — persisted preset + method choice (localStorage + ?preset=/?m= URL)
   settingsPanel.js      — gear slide-over / bottom-sheet, swipe-down dismiss
+  focusTrap.js          — reusable dialog focus trap (settings panel + preset-intro modal)
   highLatCities.js      — populated-place lookup for nearest-city snap + remote-projection warn
   data/
-    highLatCities.js    — curated city table (|lat| ≥ 50°); TODO: swap in Natural Earth
+    highLatCities.js    — curated city table (|lat| ≥ 50°); see "Known limitations"
 tests/
-  classifierAgreement.html  — open in browser; asserts classifier agreement for methods 1 and 2 (aqrab same-longitude + nearest-city)
-  classifierAgreement.test.js
+  run-node.mjs          — headless entry: `npm test` runs this (shims browser globals, then the suites)
+  node-shim.js          — minimal localStorage/window stubs for the Node run
+  shaderConstants.test.mjs  — asserts earthShader.js interpolates the constants.js thresholds correctly
+  classifierAgreement.html  — same suite in a browser (open via a local static server)
+  classifierAgreement.test.js  — classifier-agreement + chronological-ordering + Stage-1 acceptance tests
 ```
+
+The suite runs both headlessly (`npm test`, no browser) and in a browser
+(`tests/classifierAgreement.html` via a local static server). The Node run needs
+the dev dependency installed once: `npm install`.
 
 ## Known limitations
 

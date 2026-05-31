@@ -450,25 +450,30 @@ try {
   } catch (_) {}
 }
 
-// ---- render results to the page ----
-const el = document.getElementById("results");
-el.textContent = "";
-let nFail = 0;
-for (const r of results) {
-  const mark = r.ok ? "✓" : "✗";
-  const cls  = r.ok ? "pass" : "fail";
-  const tail = r.ok ? "" : `  →  ${r.error}`;
-  const line = document.createElement("span");
-  line.className = cls;
-  line.textContent = `${mark} ${r.name}${tail}\n`;
-  el.appendChild(line);
-  if (!r.ok) nFail++;
+// ---- report results (browser DOM, or Node stdout) ----
+const nFail = results.filter((r) => !r.ok).length;
+const summaryText = `${results.length - nFail}/${results.length} passed`
+                  + (nFail ? `  (${nFail} failed)` : "");
+
+if (typeof document !== "undefined" && document.getElementById("results")) {
+  const el = document.getElementById("results");
+  el.textContent = "";
+  for (const r of results) {
+    const line = document.createElement("span");
+    line.className = r.ok ? "pass" : "fail";
+    line.textContent = `${r.ok ? "✓" : "✗"} ${r.name}${r.ok ? "" : `  →  ${r.error}`}\n`;
+    el.appendChild(line);
+  }
+  // #results is a <pre> (phrasing-content container), so the summary must be
+  // a <span> not a <div> — a block-level child inside <pre> is invalid HTML.
+  const summary = document.createElement("span");
+  summary.className = "summary " + (nFail === 0 ? "pass" : "fail");
+  summary.textContent = `\n${summaryText}`;
+  el.appendChild(summary);
+} else {
+  for (const r of results) {
+    if (!r.ok) console.error(`✗ ${r.name}  →  ${r.error}`);
+  }
+  console.log(summaryText);
+  if (typeof process !== "undefined" && nFail) process.exitCode = 1;
 }
-// #results is a <pre> (phrasing-content container), so the summary
-// must be a <span> not a <div> — a block-level child inside <pre> is
-// invalid HTML and can render inconsistently across browsers.
-const summary = document.createElement("span");
-summary.className = "summary " + (nFail === 0 ? "pass" : "fail");
-summary.textContent = `\n${results.length - nFail}/${results.length} passed`
-                    + (nFail ? `  (${nFail} failed)` : "");
-el.appendChild(summary);

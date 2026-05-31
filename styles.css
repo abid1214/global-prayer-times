@@ -7,11 +7,14 @@
   --border: rgba(255, 255, 255, 0.08);
   --accent: #6aa8ff;
 
-  --c-fajr: #5B3A93;
-  --c-dhuhr: #F2B33D;
-  --c-asr: #E07A3E;
-  --c-maghrib: #C44569;
-  --c-isha: #283F6E;
+  /* Prayer palette. These are fallbacks — main.js overwrites them at boot from
+     PRAYER_COLORS (src/constants.js), the single source of truth, so the legend
+     swatches match the globe bands. Keep these literals in sync as a safety net. */
+  --c-fajr: #7a52c4;
+  --c-dhuhr: #f2b33d;
+  --c-asr: #e07a3e;
+  --c-maghrib: #c44569;
+  --c-isha: #3b5998;
 }
 
 * { box-sizing: border-box; }
@@ -129,8 +132,8 @@ html, body {
   padding: 0;
   flex-shrink: 0;
   margin-left: 10px;
-  /* topbar has pointer-events: none for click-through to the globe;
-     the gear button needs to opt back in to receive clicks. */
+  /* Topbar disables pointer-events for click-through to the globe; the gear
+     button opts back in. */
   pointer-events: auto;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
@@ -169,6 +172,14 @@ html, body {
   border-radius: 3px;
   border: 1px solid rgba(255,255,255,0.15);
 }
+
+/* Legend swatch fills, sourced from the shared palette (see --c-* above).
+   Panel-table swatches are filled inline from PRAYER_META in src/panel.js. */
+.prayer-toggle[data-prayer="fajr"] .swatch    { background: var(--c-fajr); }
+.prayer-toggle[data-prayer="dhuhr"] .swatch   { background: var(--c-dhuhr); }
+.prayer-toggle[data-prayer="asr"] .swatch     { background: var(--c-asr); }
+.prayer-toggle[data-prayer="maghrib"] .swatch { background: var(--c-maghrib); }
+.prayer-toggle[data-prayer="isha"] .swatch    { background: var(--c-isha); }
 
 #legend .hint {
   margin: 8px 0 0;
@@ -298,32 +309,59 @@ html, body {
   border-top: 1px solid var(--border);
 }
 
-/* info modal */
-#infoOverlay {
+/* Modal dialogs (info + one-time preset-intro) share an overlay + card base;
+   per-modal rules below set only what differs (z-index, padding, max-width,
+   heading sizing). */
+#infoOverlay,
+#presetIntroOverlay {
   position: fixed;
   inset: 0;
-  z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(0,0,0,0.6);
   backdrop-filter: blur(4px);
 }
-#infoOverlay[hidden] { display: none; }
+#infoOverlay[hidden],
+#presetIntroOverlay[hidden] { display: none; }
 
-#infoModal {
+#infoModal,
+#presetIntroModal {
   position: relative;
   background: var(--panel);
   backdrop-filter: blur(14px);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 24px 28px 28px;
-  max-width: 620px;
+  /* Cap height and scroll the body so the close / dismiss controls stay
+     reachable on small screens or with large accessibility font sizes. */
   max-height: 80vh;
   overflow-y: auto;
   color: var(--fg);
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* Shared close (×) button for both modals. */
+#infoClose,
+#presetIntroClose {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 22px;
+  cursor: pointer;
+  line-height: 1;
+}
+#infoClose:hover,
+#presetIntroClose:hover { color: var(--fg); }
+
+/* info modal */
+#infoOverlay { z-index: 100; }
+#infoModal {
+  padding: 24px 28px 28px;
+  max-width: 620px;
 }
 #infoModal h2 {
   margin: 0 0 14px;
@@ -397,66 +435,17 @@ html, body {
   color: var(--accent);
 }
 
-#infoClose {
-  position: absolute;
-  top: 8px;
-  right: 12px;
-  background: transparent;
-  border: 0;
-  color: var(--muted);
-  font-size: 22px;
-  cursor: pointer;
-  line-height: 1;
-}
-#infoClose:hover { color: var(--fg); }
-
-/* one-time preset-intro modal */
-#presetIntroOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 110;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(4px);
-}
-#presetIntroOverlay[hidden] { display: none; }
+/* one-time preset-intro modal — only the deltas from the shared base above */
+#presetIntroOverlay { z-index: 110; }
 #presetIntroModal {
-  position: relative;
-  background: var(--panel);
-  backdrop-filter: blur(14px);
-  border: 1px solid var(--border);
-  border-radius: 12px;
   padding: 22px 26px 22px;
   max-width: 460px;
-  /* Match #infoModal: cap height and scroll the body so the close /
-     dismiss controls stay reachable on small screens or with large
-     accessibility font sizes. Without this the dialog can grow past
-     the viewport and the buttons get pushed off-screen. */
-  max-height: 80vh;
-  overflow-y: auto;
-  color: var(--fg);
-  font-size: 13px;
-  line-height: 1.6;
 }
 #presetIntroModal h2 {
   margin: 0 0 10px;
   font-size: 16px;
 }
 #presetIntroModal p { margin: 8px 0; }
-#presetIntroClose {
-  position: absolute;
-  top: 8px;
-  right: 12px;
-  background: transparent;
-  border: 0;
-  color: var(--muted);
-  font-size: 22px;
-  cursor: pointer;
-  line-height: 1;
-}
-#presetIntroClose:hover { color: var(--fg); }
 .presetIntroDismiss {
   margin-top: 12px;
   background: var(--accent);

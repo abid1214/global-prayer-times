@@ -1,6 +1,45 @@
-// Single source of truth for user-configurable options. Persists to
-// localStorage and notifies subscribers on change so the side panel and
-// the projection viz stay in lockstep.
+// Single source of truth for user-configurable options. Each setting persists
+// to localStorage and notifies subscribers on change so the side panel and the
+// projection viz stay in lockstep.
+
+// Generic persisted-choice state machine. Both user settings below (calculation
+// preset, high-latitude method) follow the same shape: a URL parameter takes
+// precedence at load (read once, never written back — so a "share this view"
+// link works without polluting the recipient's saved preference), falling back
+// to localStorage, then a default. Validated against an `order` allow-list.
+function createSetting({ storageKey, urlParam, order, defaultValue }) {
+  const subscribers = new Set();
+  let cached = null;
+
+  function load() {
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get(urlParam);
+      if (fromUrl && order.includes(fromUrl)) return fromUrl;
+    } catch (_) {}
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored && order.includes(stored)) return stored;
+    } catch (_) {}
+    return defaultValue;
+  }
+
+  return {
+    get() {
+      if (cached === null) cached = load();
+      return cached;
+    },
+    set(value) {
+      if (!order.includes(value) || value === cached) return;
+      cached = value;
+      try { localStorage.setItem(storageKey, value); } catch (_) {}
+      for (const fn of subscribers) fn(value);
+    },
+    subscribe(fn) {
+      subscribers.add(fn);
+      return () => subscribers.delete(fn);
+    },
+  };
+}
 
 // ---- Marja' / calculation-method preset ----
 
@@ -11,23 +50,10 @@ export const PRESETS = Object.freeze({
 
 export const PRESET_ORDER = [PRESETS.JAFARI, PRESETS.TEHRAN];
 
-// Preset metadata. The actual adhan parameters are constructed by
-// paramsForPreset() in src/prayer.js — built via CalculationMethod
-// .Tehran() for the Tehran preset and via CalculationMethod.Other()
-// with explicit 16°/4°/14° for the Leva Qom preset (adhan 4.4.3 does
-// not expose a Jafari() factory; see METHODS.md).
-//
-// IMPORTANT: angles here are NOT purely advisory. They are also read
-// by activeFajrAngleDeg() in src/prayer.js to derive the preset-aware
-// Fajr-cap threshold for aqrabProjection(). reachableFajr() takes the
-// Fajr angle from its callers (params.fajrAngle from paramsForPreset's
-// CalculationParameters object), so it does NOT consult PRESET_META
-// directly — but if you change a preset's fajrAngle here without
-// updating paramsForPreset(), the cap edge (which reads PRESET_META)
-// and the reachability check (which reads adhan's params) will
-// disagree. Keep the angles here in lockstep with the params returned
-// by paramsForPreset() or the panel's "in cap" decision will diverge
-// from the actual computed schedule.
+// Preset metadata. adhan params are built by paramsForPreset() in prayer.js.
+// IMPORTANT: the angles here are also read by activeFajrAngleDeg() (prayer.js)
+// to derive the cap edge — keep them in lockstep with paramsForPreset() or the
+// panel's "in cap" decision diverges from the computed schedule.
 export const PRESET_META = Object.freeze({
   [PRESETS.JAFARI]: Object.freeze({
     id: PRESETS.JAFARI,
@@ -45,44 +71,15 @@ export const PRESET_META = Object.freeze({
   }),
 });
 
-const PRESET_STORAGE_KEY = "gpt.preset";
-const DEFAULT_PRESET = PRESETS.JAFARI;  // preserve existing behavior for current users
-
-const presetSubscribers = new Set();
-let presetCached = null;
-
-function loadPreset() {
-  // URL ?preset= takes precedence at load only — read once, never
-  // written back. Matches the ?m= pattern used by polar-method so a
-  // "share this view with preset X" link works without polluting the
-  // recipient's persisted preference.
-  try {
-    const fromUrl = new URLSearchParams(window.location.search).get("preset");
-    if (fromUrl && PRESET_ORDER.includes(fromUrl)) return fromUrl;
-  } catch (_) {}
-  try {
-    const stored = localStorage.getItem(PRESET_STORAGE_KEY);
-    if (stored && PRESET_ORDER.includes(stored)) return stored;
-  } catch (_) {}
-  return DEFAULT_PRESET;
-}
-
-export function getPreset() {
-  if (presetCached === null) presetCached = loadPreset();
-  return presetCached;
-}
-
-export function setPreset(preset) {
-  if (!PRESET_ORDER.includes(preset) || preset === presetCached) return;
-  presetCached = preset;
-  try { localStorage.setItem(PRESET_STORAGE_KEY, preset); } catch (_) {}
-  for (const fn of presetSubscribers) fn(preset);
-}
-
-export function subscribePreset(fn) {
-  presetSubscribers.add(fn);
-  return () => presetSubscribers.delete(fn);
-}
+const preset = createSetting({
+  storageKey: "gpt.preset",
+  urlParam: "preset",
+  order: PRESET_ORDER,
+  defaultValue: PRESETS.JAFARI,  // preserve existing behavior for current users
+});
+export const getPreset = preset.get;
+export const setPreset = preset.set;
+export const subscribePreset = preset.subscribe;
 
 // ---- High-latitude polar method ----
 
@@ -95,11 +92,7 @@ export const POLAR_METHODS = Object.freeze({
   ANGLE_REDUCED:      "angle_reduced",
 });
 
-// Canonical method order — used to validate persisted values and the
-// URL ?m= parameter. The shader is intentionally NOT method-aware (cap
-// always uses same-longitude projection regardless of choice, see the
-// docblock in src/earthMaterial.js), so this order is not bound to any
-// uniform; it only needs to be stable for storage round-tripping.
+// Validates persisted values and the URL ?m= parameter.
 const METHOD_ORDER = [
   POLAR_METHODS.AQRAB_SAME_LON,
   POLAR_METHODS.AQRAB_NEAREST_CITY,
@@ -109,47 +102,14 @@ const METHOD_ORDER = [
   POLAR_METHODS.ANGLE_REDUCED,
 ];
 
-// Method 2 (nearest city) matches Sistani §2032 verbatim: "Muslims
-// should rely on the timings of the closest city that has night and
-// day in a twenty-four hour period." sistani.org/english/book/46/2032
-// Existing users with a stored polar_method preference retain their
-// choice; only fresh visitors see this default.
-const DEFAULT_METHOD = POLAR_METHODS.AQRAB_NEAREST_CITY;
-const STORAGE_KEY = "polar_method";
-
-const subscribers = new Set();
-let cached = null;
-
-function load() {
-  // URL ?m= takes precedence at load only — read once, never written
-  // back. Lets someone share a "see this view with method X" link
-  // without polluting the recipient's persisted preference; their
-  // next change via the gear writes to localStorage and is sticky on
-  // subsequent visits without ?m=.
-  try {
-    const fromUrl = new URLSearchParams(window.location.search).get("m");
-    if (fromUrl && METHOD_ORDER.includes(fromUrl)) return fromUrl;
-  } catch (_) {}
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored && METHOD_ORDER.includes(stored)) return stored;
-  } catch (_) {}
-  return DEFAULT_METHOD;
-}
-
-export function getMethod() {
-  if (cached === null) cached = load();
-  return cached;
-}
-
-export function setMethod(method) {
-  if (!METHOD_ORDER.includes(method) || method === cached) return;
-  cached = method;
-  try { localStorage.setItem(STORAGE_KEY, method); } catch (_) {}
-  for (const fn of subscribers) fn(method);
-}
-
-export function subscribe(fn) {
-  subscribers.add(fn);
-  return () => subscribers.delete(fn);
-}
+// Default: method 2 (nearest city), per Sistani §2032. Existing users keep
+// their stored choice; only fresh visitors get this default.
+const method = createSetting({
+  storageKey: "polar_method",
+  urlParam: "m",
+  order: METHOD_ORDER,
+  defaultValue: POLAR_METHODS.AQRAB_NEAREST_CITY,
+});
+export const getMethod = method.get;
+export const setMethod = method.set;
+export const subscribe = method.subscribe;
