@@ -2,7 +2,7 @@ import * as adhan from "adhan";
 import { classifyPrayer, sunPosition } from "./solar.js";
 import { POLAR_METHODS, getMethod, PRESETS, getPreset, PRESET_META } from "./settings.js";
 import { snapToNearestHighLatCity, distanceToNearestCityKm } from "./highLatCities.js";
-import { DEG, DAY_LIMIT_DEG, SAFE_MARGIN_DEG, PRAYER_COLORS, hexColor } from "./constants.js";
+import { DEG, DAY_LIMIT_DEG, SAFE_MARGIN_DEG, APPARENT_HORIZON_DEG, PRAYER_COLORS, hexColor } from "./constants.js";
 
 // Preset-aware adhan params. jafari: 16°/4°/14° (built via Other(), since adhan
 // 4.4.3 has no Jafari() factory). tehran: 17.7°/4.5°/14°. madhab=Shafi forces
@@ -397,7 +397,6 @@ function angleReducedTimes(latDeg, lonDeg, date, params) {
   const sunMinDeg = sunMinRad / DEG;                       // negative
   // Polar day (sun never crosses the apparent horizon): no attainable
   // Fajr/Isha angle, so defer to the midnight rule's polar handling.
-  const APPARENT_HORIZON_DEG = -50 / 60;
   if (sunMinDeg > APPARENT_HORIZON_DEG) {
     return midnightTimes(latDeg, lonDeg, date, params);
   }
