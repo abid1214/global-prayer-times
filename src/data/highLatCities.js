@@ -2,12 +2,13 @@
 // "aqrab al-bilād — nearest city" option to snap polar-cap requests to a
 // real city's coordinates.
 //
-// Provenance: hand-curated seed list of well-known cities. TODO: replace
-// at build time with Natural Earth `ne_10m_populated_places` filtered to
-// |lat| ≥ 50°, sorted by population, capped at ~500. Source:
-//   https://github.com/nvkelso/natural-earth-vector
-// Until then, the snap may miss less-prominent cities; the panel falls
-// back to the same-longitude projection when no candidate is in window.
+// Provenance: hand-curated seed list of well-known cities. A fuller table
+// could be derived from Natural Earth `ne_10m_populated_places` filtered to
+// |lat| ≥ 50° (https://github.com/nvkelso/natural-earth-vector) and inlined
+// here — kept manual for now to preserve the zero-build setup. See "Known
+// limitations" in README.md. With the curated subset, the snap may miss
+// less-prominent cities; the panel falls back to the same-longitude
+// projection when no candidate is in window.
 //
 // Schema: { name, country, lat, lon, pop }
 //   lat/lon in degrees, lon in -180..180 (east positive).

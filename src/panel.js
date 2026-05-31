@@ -18,38 +18,29 @@ const peekCur = panelPeek.querySelector(".peekCur");
 
 let dismissed = false;
 let lastLocation = null;
-// Last (lat, lon, date, tz) tuple used for render. Re-render on
-// method change reuses this rather than re-resolving timezone (which
-// is async and would flicker). Cleared on dismiss.
+// Last (lat, lon, date, tz) used for render; reused on method change so we don't
+// re-resolve timezone (async, would flicker). Cleared on dismiss.
 let lastRender = null;
-// Active settings subscription. Established on the first
-// showPanelForLocation and kept alive across dismiss → peek (mobile)
-// and across desktop close, so a method change via the gear refreshes
-// whichever surface is currently visible (panel, peek, or nothing).
-// The single subscriber is replaced on the next showPanelForLocation
-// when the user picks a new location, so the count stays bounded.
-// settings.js's subscribe() returns an unsubscribe handle.
+// Settings subscriptions, kept alive across dismiss → peek and desktop close so
+// a gear change refreshes whichever surface is visible; replaced on the next
+// showPanelForLocation so the count stays bounded.
 let methodUnsub = null;
-// Same lifecycle as methodUnsub but for the Marja'/preset choice. The
-// callback is identical (re-render the panel with new angles) so we
-// could fold them together, but keeping them separate matches the two
-// settings APIs and makes the source of the change obvious from logs.
 let presetUnsub = null;
-// Monotonically increasing token bumped on every showPanelForLocation
-// call. The async timezone resolve compares against this before
-// committing its render — a stale resolution from a previous selection
-// gets dropped instead of overwriting the newer panel's times/tz.
+// Bumped per showPanelForLocation; the async tz-resolve drops its render if a
+// newer selection has since superseded it.
 let selectionToken = 0;
 
 const isMobile = () => window.matchMedia("(max-width: 768px)").matches;
 
+// Replace a subscription, returning the new unsubscribe handle.
+function replaceSub(old, subscribeFn, cb) {
+  if (old) old();
+  return subscribeFn(cb);
+}
+
 panelClose.addEventListener("click", () => dismissPanel());
 
-// ---- shareable link ----
-// Encode the selected location as ?lat=&lon=(&name=) so the browser
-// address bar always shows a link the user can copy from. URL is kept
-// in sync on every showPanelForLocation via history.replaceState (no
-// page reload).
+// Keep the address bar as a copyable ?lat=&lon=(&name=) link (replaceState, no reload).
 function syncUrlFromLocation(loc) {
   if (!loc) return;
   if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) {
@@ -64,9 +55,7 @@ function syncUrlFromLocation(loc) {
     else u.searchParams.delete("name");
     history.replaceState(null, "", u.toString());
   } catch (err) {
-    // history.replaceState can throw on file:// or sandboxed origins.
-    // Surface it instead of swallowing silently so dev failures stay
-    // visible, but don't let it break panel rendering.
+    // replaceState can throw on file:// / sandboxed origins — surface, don't crash.
     console.warn("syncUrlFromLocation: history.replaceState failed", err);
   }
 }
@@ -80,12 +69,8 @@ function cancelPendingDismiss() {
 
 function dismissPanel() {
   if (panel.hidden) return;
-  // Intentionally do NOT unsubscribe from method changes here: when
-  // the user dismisses to peek on mobile, a method change via the
-  // gear should still refresh the peek's "Now:" label. The
-  // subscriber callback (see showPanelForLocation) handles both the
-  // full-panel and peek states. Next showPanelForLocation replaces
-  // the subscription cleanly on a new location.
+  // Don't unsubscribe here — dismissing to the mobile peek should still let a
+  // gear change refresh its "Now:" label; the next selection replaces the sub.
   lastRender = null;
   if (!isMobile()) {
     panel.hidden = true;
@@ -123,61 +108,46 @@ function showPeek(loc) {
   panelPeek.hidden = false;
 }
 
-// ---- drag the handle to dismiss ----
-let panelDrag = null;
-panelHandle.addEventListener("pointerdown", (e) => {
-  panelDrag = { startY: e.clientY, dy: 0 };
-  panel.classList.add("dragging");
-  panelHandle.setPointerCapture(e.pointerId);
-});
-panelHandle.addEventListener("pointermove", (e) => {
-  if (!panelDrag) return;
-  panelDrag.dy = Math.max(0, e.clientY - panelDrag.startY);
-  panel.style.transform = `translateY(${panelDrag.dy}px)`;
-});
-function endPanelDrag(commit) {
-  if (!panelDrag) return;
-  panel.classList.remove("dragging");
-  if (commit && panelDrag.dy > 80) {
-    dismissPanel();
-  } else {
-    panel.style.transform = "";
-  }
-  panelDrag = null;
+// Bottom-sheet drag, shared by the panel (down to dismiss) and peek (up/tap to
+// restore). `clamp` constrains direction; `onCommit` returns true if it handled
+// the gesture, leaving the inline transform for the follow-on animation.
+function makeSheetDrag(el, target, clamp, onCommit) {
+  let drag = null;
+  el.addEventListener("pointerdown", (e) => {
+    drag = { startY: e.clientY, dy: 0, moved: false };
+    target.classList.add("dragging");
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const raw = e.clientY - drag.startY;
+    if (Math.abs(raw) > 4) drag.moved = true;
+    drag.dy = clamp(raw);
+    target.style.transform = `translateY(${drag.dy}px)`;
+  });
+  const end = (commit) => {
+    if (!drag) return;
+    target.classList.remove("dragging");
+    if (!(commit && onCommit(drag))) target.style.transform = "";
+    drag = null;
+  };
+  el.addEventListener("pointerup", () => end(true));
+  el.addEventListener("pointercancel", () => end(false));
 }
-panelHandle.addEventListener("pointerup", () => endPanelDrag(true));
-panelHandle.addEventListener("pointercancel", () => endPanelDrag(false));
 
-// ---- tap or drag-up on the peek to restore ----
-let peekDrag = null;
-panelPeek.addEventListener("pointerdown", (e) => {
-  peekDrag = { startY: e.clientY, dy: 0, moved: false };
-  panelPeek.classList.add("dragging");
-  panelPeek.setPointerCapture(e.pointerId);
+// Panel: drag the handle down past 80px to dismiss.
+makeSheetDrag(panelHandle, panel, (raw) => Math.max(0, raw), (drag) => {
+  if (drag.dy > 80) { dismissPanel(); return true; }
+  return false;
 });
-panelPeek.addEventListener("pointermove", (e) => {
-  if (!peekDrag) return;
-  const dy = e.clientY - peekDrag.startY;
-  if (Math.abs(dy) > 4) peekDrag.moved = true;
-  peekDrag.dy = Math.min(0, dy);
-  panelPeek.style.transform = `translateY(${peekDrag.dy}px)`;
+
+// Peek: tap or swipe up past 40px to restore the full panel.
+makeSheetDrag(panelPeek, panelPeek, (raw) => Math.min(0, raw), (drag) => {
+  if (!drag.moved || drag.dy < -40) { restorePanel(); return true; }
+  return false;
 });
-function endPeekDrag(commit) {
-  if (!peekDrag) return;
-  panelPeek.classList.remove("dragging");
-  const tap = !peekDrag.moved;
-  const swipedUp = peekDrag.dy < -40;
-  if (commit && (tap || swipedUp)) {
-    restorePanel();
-  } else {
-    panelPeek.style.transform = "";
-  }
-  peekDrag = null;
-}
-panelPeek.addEventListener("pointerup", () => endPeekDrag(true));
-panelPeek.addEventListener("pointercancel", () => endPeekDrag(false));
-// Pointer events handle mouse/touch; this covers keyboard activation
-// (Enter/Space) on the peek <button> for screen-reader / switch users.
+
+// Keyboard activation (Enter/Space) on the peek button, for a11y.
 panelPeek.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
@@ -215,6 +185,13 @@ async function resolveTimezone(lat, lon) {
   return approxTzFromLon(lon);
 }
 
+// Shift a UTC instant by the approximate (longitude-derived) offset so it can
+// be formatted in UTC and read as local solar time. Only used for the approx
+// (non-IANA) tz path.
+function shiftToApproxTz(date, tz) {
+  return new Date(date.getTime() + tz.offsetMin * 60_000);
+}
+
 function fmtTimeWithTz(date, tz) {
   if (tz.kind === "iana") {
     return new Intl.DateTimeFormat([], {
@@ -225,7 +202,7 @@ function fmtTimeWithTz(date, tz) {
     }).format(date);
   }
   // approx — shift by longitude solar offset
-  const shifted = new Date(date.getTime() + tz.offsetMin * 60_000);
+  const shifted = shiftToApproxTz(date, tz);
   const hh = String(shifted.getUTCHours()).padStart(2, "0");
   const mm = String(shifted.getUTCMinutes()).padStart(2, "0");
   return `${hh}:${mm}`;
@@ -240,7 +217,7 @@ function fmtDateLabel(date, tz) {
       timeZone: tz.iana,
     }).format(date);
   }
-  const shifted = new Date(date.getTime() + tz.offsetMin * 60_000);
+  const shifted = shiftToApproxTz(date, tz);
   return new Intl.DateTimeFormat([], {
     weekday: "short",
     month: "short",
@@ -251,7 +228,6 @@ function fmtDateLabel(date, tz) {
 
 function tzLabel(tz, date) {
   if (tz.kind === "iana") {
-    // Resolve current UTC offset for the IANA zone
     const offsetStr = new Intl.DateTimeFormat([], {
       timeZone: tz.iana,
       timeZoneName: "shortOffset",
@@ -281,23 +257,16 @@ function fmtLat(lat) {
   return `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}`;
 }
 
-// UTC-only short-date formatter, used for derivedFromDate (aqrab
-// al-awqāt's "schedule from {date}"). That's a date-only concept
-// stored as a Date-at-UTC-noon — formatting it in an IANA timezone
-// (especially +12 or higher) can roll into the next/previous local
-// calendar day. Forcing UTC keeps the label as the canonical
-// historical calendar date the schedule was computed for.
+// UTC-only short date for derivedFromDate (a Date-at-UTC-noon) — an IANA zone
+// could roll it into an adjacent calendar day.
 function fmtUtcShortDate(d) {
   return new Intl.DateTimeFormat([], {
     month: "short", day: "numeric", year: "numeric", timeZone: "UTC",
   }).format(d);
 }
 
-// Human description of how the polar-cap schedule was derived.
-// Returns { primary, secondary? } or null. `primary` is appended to
-// the date line; `secondary`, when present, renders as an italic
-// sub-line below — used only for caveats that don't belong in the
-// always-visible row.
+// How the polar-cap schedule was derived → { primary, secondary? } or null.
+// primary appends to the date line; secondary is an italic caveat sub-line.
 const CITY_VISUAL_DELTA_DEG = 1;
 function describePolarMethod(polarMethod, tz, _date) {
   if (!polarMethod) return null;
@@ -310,10 +279,7 @@ function describePolarMethod(polarMethod, tz, _date) {
       }
       const c = polarMethod.city;
       const out = { primary: `Method: aqrab al-bilād · times from ${c.name}` };
-      // Shader can't carry a city table — visual cap always uses the
-      // same-longitude projection. Only flag it when the discrepancy
-      // is visually meaningful (>1° lat difference between the city
-      // and the projection target).
+      // Visual cap always uses same-longitude; flag only a meaningful (>1°) gap.
       if (Math.abs(c.lat - polarMethod.projectedFromLat) > CITY_VISUAL_DELTA_DEG) {
         out.secondary = `(cap visualization uses ${fmtLat(polarMethod.projectedFromLat)} projection)`;
       }
@@ -324,10 +290,6 @@ function describePolarMethod(polarMethod, tz, _date) {
     case "midnight": {
       const out = { primary: `Method: niṣf al-layl (middle of night)` };
       if (polarMethod.endOfNightSource === "sunrise-fallback") {
-        // Describes the rule state rather than asserting sunrise was
-        // used — at deep polar latitudes the sunrise anchor itself
-        // may be NaN and the times collapse to NaN, which this label
-        // still applies to.
         out.secondary = `end-of-night fallback in effect (Fajr unresolvable at this latitude/date)`;
       }
       return out;
@@ -347,8 +309,7 @@ function describePolarMethod(polarMethod, tz, _date) {
 }
 
 export async function showPanelForLocation({ lat, lon, name }, date = new Date()) {
-  // Bump the token first so any in-flight tz-resolve from a previous
-  // call drops its render (see resolveTimezone().then below).
+  // Bump first so an in-flight tz-resolve from a prior call drops its render.
   const token = ++selectionToken;
   const times = getTimesForLocation(lat, lon, date);
   lastLocation = { lat, lon, name, date, currentPrayer: times.currentPrayer };
@@ -390,10 +351,8 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
       showPeek(lastLocation);
     }
   };
-  if (methodUnsub) methodUnsub();
-  methodUnsub = subscribeMethod(onSettingsChange);
-  if (presetUnsub) presetUnsub();
-  presetUnsub = subscribePreset(onSettingsChange);
+  methodUnsub = replaceSub(methodUnsub, subscribeMethod, onSettingsChange);
+  presetUnsub = replaceSub(presetUnsub, subscribePreset, onSettingsChange);
 
   // Resolve tz, then render. If tz-lookup is slow, we render with the
   // approximation immediately, then upgrade once it loads.
@@ -413,10 +372,7 @@ export async function showPanelForLocation({ lat, lon, name }, date = new Date()
 function render(lat, lon, date, tz) {
   lastRender = { lat, lon, date, tz };
   const times = getTimesForLocation(lat, lon, date);
-  // Keep lastLocation.currentPrayer in lockstep with the just-rendered
-  // band so the peek bar's "Now:" label stays accurate after a method
-  // change or tz refinement. Without this, dismissing the panel after
-  // switching method would show the band from panel-open time.
+  // Keep the peek's "Now:" label in lockstep with the rendered band.
   if (lastLocation) lastLocation.currentPrayer = times.currentPrayer;
 
   let dateLine = `${fmtDateLabel(date, tz)} · ${tzLabel(tz, date)}`;
@@ -458,7 +414,6 @@ function render(lat, lon, date, tz) {
     panelTimesBody.appendChild(tr);
   }
 
-  // Qibla bearing
   const coords = new adhan.Coordinates(lat, lon);
   const qiblaDeg = adhan.Qibla(coords);
   panelQibla.innerHTML = `<span class="muted">Qibla:</span> ${fmtBearing(qiblaDeg)}`;

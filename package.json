@@ -1,0 +1,13 @@
+{
+  "name": "global-prayer-times",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Interactive 3D globe of Shia (Ja'fari) prayer windows. Zero build step — served as static files; this package.json exists only to run the classifier test suite headlessly in Node.",
+  "scripts": {
+    "test": "node tests/run-node.mjs"
+  },
+  "devDependencies": {
+    "adhan": "4.4.3"
+  }
+}
