@@ -57,7 +57,13 @@ async function runSearch(q, onSelect) {
     const parts = item.display_name.split(",");
     const name = parts[0];
     const sub = parts.slice(1, 4).join(",").trim();
-    el.innerHTML = `<div>${name}</div><div class="sub">${sub}</div>`;
+    // textContent (not innerHTML) — display_name is untrusted API data.
+    const nameEl = document.createElement("div");
+    nameEl.textContent = name;
+    const subEl = document.createElement("div");
+    subEl.className = "sub";
+    subEl.textContent = sub;
+    el.append(nameEl, subEl);
     el.addEventListener("mousedown", (e) => {
       e.preventDefault();
       results.hidden = true;
