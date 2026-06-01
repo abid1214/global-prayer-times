@@ -216,9 +216,11 @@ function buildResult({ latDeg, lonDeg, date, times, polarMethod, classifyMode })
     const crossDay = polarMethod?.kind === "aqrab_awqat";
     currentPrayer = classifyByClock(times, date, { crossDay });
   } else {
-    const refLat = polarMethod?.kind === "aqrab" ? polarMethod.projectedFromLat
-                 : polarMethod?.kind === "aqrab_city" ? (polarMethod.city?.lat ?? polarMethod.projectedFromLat)
-                 : latDeg;
+    // The globe shades by the sun's true altitude at the actual point, so "Now
+    // in" classifies there too and the two always agree. The nearest-city method
+    // is the lone exception: it deliberately reports the chosen city's sky (its
+    // whole purpose), which the panel descriptor flags as a divergence.
+    const refLat = polarMethod?.kind === "aqrab_city" ? (polarMethod.city?.lat ?? latDeg) : latDeg;
     const refLon = polarMethod?.kind === "aqrab_city" ? (polarMethod.city?.lon ?? lonDeg) : lonDeg;
     currentPrayer = classifyPrayer(refLat * DEG, refLon * DEG, date);
   }

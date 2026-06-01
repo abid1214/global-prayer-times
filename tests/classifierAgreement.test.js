@@ -1,18 +1,18 @@
-// Locks in the same-longitude-only cap visualization decision (see
-// the docblock in src/earthMaterial.js) by way of a classifier-vs-
+// Locks in schedule-internal consistency by way of a classifier-vs-
 // classifier invariant at the schedule's reference point.
 //
-// AQRAB_SAME_LON and AQRAB_NEAREST_CITY are the two methods where
-// the panel uses the sun-altitude classifier (at the projected /
-// snapped reference point); the clock-based classifier walked over
-// the same times must agree with it. If anyone changes how either
+// AQRAB_SAME_LON and AQRAB_NEAREST_CITY are the two methods that
+// synthesize their schedule from a projected / snapped reference
+// point. classifyPrayer (sun altitude) at that point must agree
+// with classifyByClock walked over the times computed there — i.e.
+// the synthesized clock schedule matches the sun-altitude reality
+// at the latitude it was built for. If anyone changes how either
 // classifier computes a band, this asserts they still match where
-// they're supposed to. (Note: this is a classifier-vs-classifier
-// check at the reference point, NOT a panel-vs-shader check —
-// the shader is always same-longitude regardless of method per
-// the earthMaterial.js docblock, so nearest-city's panel times
-// can still diverge from the visual cap; that's documented and
-// expected.)
+// they're supposed to. (This is a classifier-vs-classifier check at
+// the reference point. It is NOT a panel-vs-globe check: the globe
+// shades by true sun altitude at each actual pixel — see
+// earthShader.js — so above the cap the borrowed panel times can
+// diverge from the globe color; that's documented and expected.)
 //
 // For the four clock-mode methods (AQRAB_AL_AWQAT / MIDNIGHT /
 // SEVENTH / ANGLE_REDUCED) the two classifiers are designed to
