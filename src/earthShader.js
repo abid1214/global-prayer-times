@@ -1,11 +1,10 @@
 // GLSL for the prayer-window shader. THREE-free (imports only constants.js) so
 // the text can be built and verified in Node (tests/shaderConstants); wrapped by
 // earthMaterial.js. Visualization thresholds are interpolated from constants.js
-// to stay in lockstep with solar.js's classifier and prayer.js's cap math.
+// to stay in lockstep with solar.js's classifier.
 
 import {
-  VIS_FAJR_DEG, VIS_MAGHRIB_DEG, VIS_ISHA_DEG, APPARENT_HORIZON_DEG,
-  COS_FLOOR, FAJR_LIMIT_DEG, DAY_LIMIT_DEG, SAFE_MARGIN_DEG,
+  VIS_FAJR_DEG, VIS_MAGHRIB_DEG, VIS_ISHA_DEG, APPARENT_HORIZON_DEG, COS_FLOOR,
 } from "./constants.js";
 
 // JS number → GLSL float literal (force a decimal point so it parses as float).
@@ -71,39 +70,19 @@ export const FRAG = /* glsl */ `
 
     float lat  = asin(clamp(n.y, -1.0, 1.0));
     float lonP = atan(-n.z, n.x);
+    float cosLat = cos(lat);
+    float sinLat = sin(lat);
 
-    // Aqrab al-Bilād: above the latitude where the standard calc breaks down,
-    // each pixel uses its same-longitude projection point's schedule. Two
-    // failure modes (full derivation: README / git history):
-    //   Fajr-cap:        |φ+δ| > 74°     (sun never reaches -16°)
-    //   Polar-night cap: |φ-δ| > 90.833° (sun never crosses the apparent horizon)
-    // Cap = whichever trips first per hemisphere; it tilts seasonally with ±δ.
-    // The shader is intentionally method-agnostic — always same-longitude — since
-    // the other five methods have no clean per-pixel form; the panel descriptor
-    // surfaces the divergence (see describePolarMethod in panel.js). The Fajr cap
-    // is the fixed Leva Qom 74°; the panel derives a preset-aware one (prayer.js).
-    const float FAJR_LIMIT = ${glslFloat(FAJR_LIMIT_DEG)} * PI / 180.0;
-    const float DAY_LIMIT  = ${glslFloat(DAY_LIMIT_DEG)} * PI / 180.0;
-    // Cap membership uses the TRUE threshold (matches aqrabProjection). SAFE_MARGIN
-    // pulls only the projection target back from adhan's cosH=±1 singularity.
-    const float SAFE_MARGIN = ${glslFloat(SAFE_MARGIN_DEG)} * PI / 180.0;
-    float northTrue = min(FAJR_LIMIT - decl, DAY_LIMIT + decl);
-    float southTrue = max(-FAJR_LIMIT - decl, -DAY_LIMIT + decl);
-    // effLat jumps by SAFE_MARGIN at the threshold (sub-pixel); the ~5° band
-    // smoothing below absorbs the step.
-    float effLat = lat;
-    if (lat > northTrue) effLat = northTrue - SAFE_MARGIN;
-    else if (lat < southTrue) effLat = southTrue + SAFE_MARGIN;
-    // Effective normal at (effLat, lonP): equals n below the cap, the projection
-    // point's normal inside it, so all sun-relative math reflects the schedule.
-    float cosEff = cos(effLat);
-    float sinEff = sin(effLat);
-    vec3 effN = vec3(cosEff * cos(lonP), sinEff, -cosEff * sin(lonP));
-
-    float sinAlt = clamp(dot(sd, effN), -1.0, 1.0);
+    // Classify purely by the sun's true altitude at each point — no nearest-
+    // latitude projection — so the bands stay smooth all the way to the poles:
+    // the dhuhr/asr quarter and the fajr↔maghrib/isha twilight ring meet at the
+    // terminator (sunset = sunrise) rather than collapsing into radial wedges.
+    // Polar pixels read out their real sky; the panel still lists Aqrab al-Bilād
+    // clock times for the borrowed schedule (see prayer.js).
+    float sinAlt = clamp(dot(sd, n), -1.0, 1.0);
     float alt = asin(sinAlt);
 
-    float diff = effLat - decl;
+    float diff = lat - decl;
     // 0.0005 floor smooths the derivative at diff=0 (solar.js omits it — see there).
     float zenithDiff = clamp(sqrt(diff * diff + 0.0005), 0.0, 1.4);
     float altAsr = atan(1.0 / (1.0 + tan(zenithDiff)));
@@ -141,12 +120,27 @@ export const FRAG = /* glsl */ `
     // the geographic poles and the high-lat regime where both terms
     // approach zero. Mirrored in solar.js; do not shrink without testing
     // |φ|,|δ| → π/2.
-    float denom  = max(cosEff * cosDec, ${glslFloat(COS_FLOOR)});
-    float Hmag   = acos(clamp((sin(MAGHRIB_ANGLE) - sinEff * sinDec) / denom, -1.0, 1.0));
-    float Hfajr  = acos(clamp((sin(FAJR_ANGLE)    - sinEff * sinDec) / denom, -1.0, 1.0));
-    float Hmid   = PI + (Hmag - Hfajr) * 0.5;
-    // Smoothing band ~2.3° in hour angle (~9 min of solar time).
-    float pastMidnight = smoothstep(Hmid - 0.04, Hmid + 0.04, Hp);
+    float denom  = max(cosLat * cosDec, ${glslFloat(COS_FLOOR)});
+    float argMag = (sin(MAGHRIB_ANGLE) - sinLat * sinDec) / denom;
+    float argFaj = (sin(FAJR_ANGLE)    - sinLat * sinDec) / denom;
+    float Hmag   = acos(clamp(argMag, -1.0, 1.0));
+    float Hfajr  = acos(clamp(argFaj, -1.0, 1.0));
+    // The midnight asymmetry (Hmag−Hfajr)/2 is only meaningful where maghrib AND
+    // fajr actually occur. At high latitude the sun can stay between −16° and −4°
+    // all "day": both crossings degenerate (|arg| → 1, acos clamps to 0 or π) and
+    // the raw term yanks Hmid up to 90° off antisolar — so the isha/none seam
+    // lurches as the date scrubs. Fade the correction out as either crossing
+    // approaches non-existence, so Hmid relaxes smoothly to π (the sun's lowest
+    // point — the natural midnight). Visual only; solar.js keeps the exact form.
+    float valid  = (1.0 - smoothstep(0.2, 1.0, abs(argMag)))
+                 * (1.0 - smoothstep(0.2, 1.0, abs(argFaj)));
+    float Hmid   = PI + valid * (Hmag - Hfajr) * 0.5;
+    // Morning (post-shar'ī-midnight) vs afternoon, as a blend weight. The
+    // midnight seam (isha → none/fajr) is feathered to ~7° of hour angle so it
+    // doesn't read as a knife-edge spoke where the meridians converge at the
+    // poles. The noon seam is deliberately left sharp: Dhuhr begins exactly at
+    // solar noon, and feathering it would tint pixels Dhuhr before its time.
+    float pastMidnight = smoothstep(Hmid - 0.12, Hmid + 0.12, Hp);
 
     // ---- morning branch ----
     // After shar'ī midnight only Fajr has a dedicated waqt. morningColor stays
@@ -176,9 +170,14 @@ export const FRAG = /* glsl */ `
     vec3 prayerColor = mix(afternoonColor, morningColor, pastMidnight);
     float coverage = mix(afternoonEnable, morningCoverage, pastMidnight);
 
-    // Uniformly-lit base earth, sampled on the actual normal (geography
-    // unchanged inside the cap).
-    vec3 baseCol = sampleEquirect(dayMap, n).rgb * dayBoost + 0.14;
+    // Day/night terminator on the base earth: dim the night hemisphere so deep-
+    // night "none" areas (notably bright polar ice) fall dark instead of blowing
+    // out to white, and so night-side prayer colors read against a dark base.
+    // Uses the pixel's true sun altitude; soft across the terminator (~ -7°…+3°).
+    // The prayer tint + additive glow below are left at full strength, so shaded
+    // windows stay vivid while only the unshaded base darkens.
+    float dayNight = smoothstep(-0.12, 0.06, sinAlt);
+    vec3 baseCol = (sampleEquirect(dayMap, n).rgb * dayBoost + 0.14) * mix(0.20, 1.0, dayNight);
 
     float strength = coverage * prayerOpacity * prayerEnabled;
     vec3 tinted = mix(baseCol, prayerColor, strength * 0.92);

@@ -267,7 +267,6 @@ function fmtUtcShortDate(d) {
 
 // How the polar-cap schedule was derived → { primary, secondary? } or null.
 // primary appends to the date line; secondary is an italic caveat sub-line.
-const CITY_VISUAL_DELTA_DEG = 1;
 function describePolarMethod(polarMethod, tz, _date) {
   if (!polarMethod) return null;
   switch (polarMethod.kind) {
@@ -278,12 +277,12 @@ function describePolarMethod(polarMethod, tz, _date) {
         return { primary: `Method: aqrab al-bilād (nearest city) · no city in window, fell back to ${fmtLat(polarMethod.projectedFromLat)}` };
       }
       const c = polarMethod.city;
-      const out = { primary: `Method: aqrab al-bilād · times from ${c.name}` };
-      // Visual cap always uses same-longitude; flag only a meaningful (>1°) gap.
-      if (Math.abs(c.lat - polarMethod.projectedFromLat) > CITY_VISUAL_DELTA_DEG) {
-        out.secondary = `(cap visualization uses ${fmtLat(polarMethod.projectedFromLat)} projection)`;
-      }
-      return out;
+      // The globe shades by the actual local sky everywhere; this method alone
+      // reports its "Now in" and times from the substitute city, so flag it.
+      return {
+        primary: `Method: aqrab al-bilād · times from ${c.name}`,
+        secondary: `(globe shows your local sky, not ${c.name}'s)`,
+      };
     }
     case "aqrab_awqat":
       return { primary: `Method: aqrab al-awqāt · schedule from ${fmtUtcShortDate(polarMethod.derivedFromDate)}` };
