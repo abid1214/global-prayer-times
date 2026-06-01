@@ -135,13 +135,12 @@ export const FRAG = /* glsl */ `
     float valid  = (1.0 - smoothstep(0.2, 1.0, abs(argMag)))
                  * (1.0 - smoothstep(0.2, 1.0, abs(argFaj)));
     float Hmid   = PI + valid * (Hmag - Hfajr) * 0.5;
-    // Morning (post-shar'ī-midnight) vs afternoon, as a blend weight. Smoothed
-    // at BOTH seams — the midnight seam (isha → none) and the noon seam
-    // (none → Dhuhr, as Hp wraps at 2π) — because at the poles every meridian
-    // converges to a point, so a hard seam there reads as a sharp radial spoke.
-    // ~7° band at midnight, ~14° at noon.
-    float pastMidnight = smoothstep(Hmid - 0.12, Hmid + 0.12, Hp)
-                       * (1.0 - smoothstep(TWO_PI - 0.24, TWO_PI, Hp));
+    // Morning (post-shar'ī-midnight) vs afternoon, as a blend weight. The
+    // midnight seam (isha → none/fajr) is feathered to ~7° of hour angle so it
+    // doesn't read as a knife-edge spoke where the meridians converge at the
+    // poles. The noon seam is deliberately left sharp: Dhuhr begins exactly at
+    // solar noon, and feathering it would tint pixels Dhuhr before its time.
+    float pastMidnight = smoothstep(Hmid - 0.12, Hmid + 0.12, Hp);
 
     // ---- morning branch ----
     // After shar'ī midnight only Fajr has a dedicated waqt. morningColor stays
